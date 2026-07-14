@@ -1,10 +1,22 @@
-import React from 'react';
-import { Check } from 'lucide-react';
+import React, { useState } from 'react';
+import { Check, Download, AlertTriangle, Copy } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 
 export default function Congrat() {
   const navigate = useNavigate();
+  const [copied, setCopied] = useState(false);
+  const pdfUrl = "https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/4e8f1e8e-647f-4f41-b154-b6f1046e50dd.pdf";
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(pdfUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (err) {
+      console.error("Failed to copy link:", err);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#14120F] text-[#FAFAF8] flex items-center justify-center p-4 relative overflow-hidden">
@@ -30,14 +42,66 @@ export default function Congrat() {
         {/* Header / Text */}
         <div className="flex flex-col gap-3 mb-8">
           <h1 className="font-display text-3xl font-bold tracking-tight text-success-gold">
-            Félicitations !
+            Merci pour votre achat !
           </h1>
           <p className="text-sm text-neutral-400 max-w-[320px] mx-auto leading-relaxed">
-            Votre paiement a été validé avec succès.
+            Votre paiement a été validé avec succès. Votre guide est prêt à être téléchargé.
           </p>
-          <p className="text-xs text-neutral-500 max-w-[280px] mx-auto leading-relaxed mt-2 border-t border-neutral-800/40 pt-4">
-            (Cette page sera mise à jour avec vos détails personnalisés très bientôt.)
-          </p>
+        </div>
+
+        {/* Main download button */}
+        <div className="w-full mb-6">
+          <a
+            href={pdfUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            download
+            className="w-full py-4 px-6 rounded-2xl text-sm font-bold text-white bg-accent-corail hover:bg-accent-corail-hover transition-colors shadow-lg hover:shadow-accent-corail/25 cursor-pointer flex items-center justify-center gap-2 group font-display tracking-wider uppercase"
+          >
+            <Download size={18} className="animate-bounce" style={{ animationDuration: '2s' }} />
+            <span>TÉLÉCHARGER LE PDF</span>
+          </a>
+        </div>
+
+        {/* TikTok warning / Copy link box */}
+        <div className="w-full bg-[#1E1B17]/60 border border-neutral-800/50 rounded-2xl p-5 mb-8 text-left flex flex-col gap-3.5">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-yellow-500/10 text-yellow-500 rounded-lg shrink-0 mt-0.5">
+              <AlertTriangle size={15} />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-neutral-200">Vous utilisez TikTok ?</h4>
+              <p className="text-[11px] text-neutral-400 leading-relaxed mt-1">
+                Le navigateur intégré de TikTok bloque parfois les téléchargements directs. Si le bouton ci-dessus ne fonctionne pas, copiez le lien ci-dessous et ouvrez-le dans un navigateur externe (Chrome, Safari, etc.).
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2 mt-1">
+            <div className="flex-1 bg-black/40 border border-neutral-800 rounded-xl px-3 py-2 text-[10px] font-mono text-neutral-400 truncate select-all">
+              {pdfUrl}
+            </div>
+            <button
+              onClick={handleCopyLink}
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold cursor-pointer transition-all flex items-center gap-1.5 shrink-0 ${
+                copied 
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' 
+                  : 'bg-white/5 hover:bg-white/10 text-neutral-200 border border-neutral-800'
+              }`}
+            >
+              {copied ? (
+                <>
+                  <Check size={13} strokeWidth={3} className="text-emerald-400" />
+                  <span>Copié</span>
+                </>
+              ) : (
+                <>
+                  <Copy size={13} />
+                  <span>Copier</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Minimal action button */}
