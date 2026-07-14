@@ -1,0 +1,2126 @@
+// server.ts
+import express from "express";
+import path2 from "path";
+import dotenv from "dotenv";
+import { createClient } from "@supabase/supabase-js";
+
+// src/lib/serverDb.ts
+import fs from "fs";
+import path from "path";
+var DB_FILE_PATH = path.join(process.cwd(), "src", "data", "server_db.json");
+var dir = path.dirname(DB_FILE_PATH);
+try {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+} catch (err) {
+  console.warn("[ServerDB] Safe warning: Could not verify or create database directory, probably running in a read-only serverless environment:", err);
+}
+var memoryDb = null;
+function loadDB() {
+  if (memoryDb) {
+    return memoryDb;
+  }
+  try {
+    if (!fs.existsSync(DB_FILE_PATH)) {
+      const defaultDB = { purchases: [], transactions: [], notifications: [], subscriptions: [], creator_profiles: [], withdrawals: [] };
+      try {
+        fs.writeFileSync(DB_FILE_PATH, JSON.stringify(defaultDB, null, 2), "utf-8");
+      } catch (writeErr) {
+        console.warn("[ServerDB] Cannot write default DB to disk, using in-memory mode:", writeErr);
+      }
+      memoryDb = defaultDB;
+    } else {
+      const content = fs.readFileSync(DB_FILE_PATH, "utf-8");
+      const db2 = JSON.parse(content);
+      db2.subscriptions = db2.subscriptions || [];
+      db2.creator_profiles = db2.creator_profiles || [];
+      db2.withdrawals = db2.withdrawals || [];
+      memoryDb = db2;
+    }
+  } catch (err) {
+    console.error("[ServerDB] Error loading database from disk, falling back to in-memory mode:", err);
+    if (!memoryDb) {
+      memoryDb = { purchases: [], transactions: [], notifications: [], subscriptions: [], creator_profiles: [], withdrawals: [] };
+    }
+  }
+  const db = memoryDb;
+  if (db.creator_profiles.length === 0) {
+    db.creator_profiles = [
+      {
+        id: "creator_1",
+        user_id: "user_1",
+        username: "michella_coaching",
+        display_name: "Michella Coaching",
+        bio: "Coach certifi\xE9e en influence et mon\xE9tisation d'audience.",
+        avatar_url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80",
+        cover_url: "",
+        payout_phone_number: "2250707070707",
+        payout_provider: "wave",
+        status: "active",
+        is_premium: true,
+        premium_expires_at: new Date(Date.now() + 15 * 24 * 60 * 60 * 1e3).toISOString(),
+        created_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1e3).toISOString()
+      },
+      {
+        id: "creator_2",
+        user_id: "user_2",
+        username: "dev_guy",
+        display_name: "Abdoulaye Sow",
+        bio: "Formateur en d\xE9veloppement web React et Node.js.",
+        avatar_url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80",
+        cover_url: "",
+        payout_phone_number: "221776543210",
+        payout_provider: "orange",
+        status: "active",
+        is_premium: false,
+        premium_expires_at: null,
+        created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3).toISOString()
+      },
+      {
+        id: "creator_3",
+        user_id: "user_3",
+        username: "momo_designer",
+        display_name: "Mamadou Diallo",
+        bio: "UI/UX Designer, je vends des templates Figma professionnels.",
+        avatar_url: "",
+        cover_url: "",
+        payout_phone_number: "22366778899",
+        payout_provider: "mtn",
+        status: "inactive",
+        is_premium: true,
+        premium_expires_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1e3).toISOString(),
+        // Expired
+        created_at: new Date(Date.now() - 45 * 24 * 60 * 60 * 1e3).toISOString()
+      }
+    ];
+  }
+  if (db.withdrawals.length === 0) {
+    db.withdrawals = [
+      {
+        id: "w_1",
+        creator_id: "creator_1",
+        amount_requested: 15e3,
+        payout_provider: "wave",
+        payout_phone_number: "2250707070707",
+        status: "pending",
+        requested_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1e3).toISOString()
+      },
+      {
+        id: "w_2",
+        creator_id: "creator_2",
+        amount_requested: 25e3,
+        payout_provider: "orange",
+        payout_phone_number: "221776543210",
+        status: "pending",
+        requested_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1e3).toISOString()
+      },
+      {
+        id: "w_3",
+        creator_id: "creator_1",
+        amount_requested: 1e4,
+        payout_provider: "wave",
+        payout_phone_number: "2250707070707",
+        status: "paid",
+        requested_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1e3).toISOString(),
+        processed_at: new Date(Date.now() - 9 * 24 * 60 * 60 * 1e3).toISOString()
+      }
+    ];
+  }
+  return db;
+}
+function saveDB(db) {
+  memoryDb = db;
+  try {
+    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(db, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("[ServerDB] Error saving database to disk, keeping state in-memory:", err);
+  }
+}
+var serverDb = {
+  getPurchases() {
+    return loadDB().purchases;
+  },
+  getPurchase(id) {
+    return loadDB().purchases.find((p) => p.id === id);
+  },
+  getPurchaseByCart(cartId) {
+    return loadDB().purchases.find((p) => p.paymentReference === cartId);
+  },
+  addPurchase(purchase) {
+    const db = loadDB();
+    const newPurchase = {
+      buyerPhone: purchase.buyerPhone,
+      buyerEmail: purchase.buyerEmail,
+      buyerFirstName: purchase.buyerFirstName,
+      buyerLastName: purchase.buyerLastName,
+      contentId: purchase.contentId,
+      status: purchase.status,
+      paymentReference: purchase.paymentReference,
+      amountPaid: purchase.amountPaid,
+      commissionAmount: purchase.commissionAmount,
+      creatorNetAmount: purchase.creatorNetAmount,
+      id: purchase.id || `purchase_${Math.random().toString(36).substring(2, 11)}`,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    db.purchases.push(newPurchase);
+    saveDB(db);
+    return newPurchase;
+  },
+  updatePurchase(id, updates) {
+    const db = loadDB();
+    const idx = db.purchases.findIndex((p) => p.id === id);
+    if (idx === -1) return null;
+    db.purchases[idx] = { ...db.purchases[idx], ...updates };
+    saveDB(db);
+    return db.purchases[idx];
+  },
+  addTransaction(tx) {
+    const db = loadDB();
+    const newTx = {
+      ...tx,
+      id: `tx_${Math.random().toString(36).substring(2, 11)}`,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    db.transactions.push(newTx);
+    saveDB(db);
+    return newTx;
+  },
+  updateTransactionByCart(cartId, updates) {
+    const db = loadDB();
+    const idx = db.transactions.findIndex((t) => t.providerTransactionId === cartId);
+    if (idx === -1) return null;
+    db.transactions[idx] = { ...db.transactions[idx], ...updates };
+    saveDB(db);
+    return db.transactions[idx];
+  },
+  addNotification(notif) {
+    const db = loadDB();
+    const newNotif = {
+      ...notif,
+      id: `notif_${Math.random().toString(36).substring(2, 11)}`,
+      isRead: false,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    db.notifications.push(newNotif);
+    saveDB(db);
+    return newNotif;
+  },
+  getNotifications(userId) {
+    return loadDB().notifications.filter((n) => n.userId === userId);
+  },
+  getSubscriptions() {
+    return loadDB().subscriptions;
+  },
+  getCreatorSubscriptions(creatorId) {
+    return loadDB().subscriptions.filter((s) => s.creatorId === creatorId);
+  },
+  addSubscription(sub) {
+    const db = loadDB();
+    const newSub = {
+      ...sub,
+      id: `sub_${Math.random().toString(36).substring(2, 11)}`,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    db.subscriptions.push(newSub);
+    saveDB(db);
+    return newSub;
+  },
+  updateSubscription(id, updates) {
+    const db = loadDB();
+    const idx = db.subscriptions.findIndex((s) => s.id === id);
+    if (idx === -1) return null;
+    db.subscriptions[idx] = { ...db.subscriptions[idx], ...updates };
+    saveDB(db);
+    return db.subscriptions[idx];
+  },
+  isCreatorSubscribed(creatorId) {
+    const db = loadDB();
+    const now = Date.now();
+    const graceLimit = now - 3 * 24 * 60 * 60 * 1e3;
+    return db.subscriptions.some(
+      (s) => s.creatorId === creatorId && s.status === "active" && new Date(s.endDate).getTime() > graceLimit
+    );
+  },
+  getCreators() {
+    return loadDB().creator_profiles;
+  },
+  updateCreator(id, updates) {
+    const db = loadDB();
+    const idx = db.creator_profiles.findIndex((c) => c.id === id);
+    if (idx === -1) return null;
+    db.creator_profiles[idx] = { ...db.creator_profiles[idx], ...updates };
+    saveDB(db);
+    return db.creator_profiles[idx];
+  },
+  getWithdrawals() {
+    return loadDB().withdrawals;
+  },
+  addWithdrawal(w) {
+    const db = loadDB();
+    db.withdrawals.push(w);
+    saveDB(db);
+    return w;
+  },
+  updateWithdrawal(id, updates) {
+    const db = loadDB();
+    const idx = db.withdrawals.findIndex((w) => w.id === id);
+    if (idx === -1) return null;
+    db.withdrawals[idx] = { ...db.withdrawals[idx], ...updates };
+    saveDB(db);
+    return db.withdrawals[idx];
+  }
+};
+
+// server.ts
+dotenv.config();
+process.env.SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+process.env.VITE_SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+process.env.SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+process.env.VITE_SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+process.env.VITE_SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+process.env.MAKETOU_API_KEY = process.env.MAKETOU_API_KEY || process.env.VITE_MAKETOU_API_KEY;
+process.env.VITE_MAKETOU_API_KEY = process.env.MAKETOU_API_KEY || process.env.VITE_MAKETOU_API_KEY;
+process.env.MAKETOU_PRODUCT_ID = process.env.MAKETOU_PRODUCT_ID || process.env.VITE_MAKETOU_PRODUCT_ID;
+process.env.VITE_MAKETOU_PRODUCT_ID = process.env.MAKETOU_PRODUCT_ID || process.env.VITE_MAKETOU_PRODUCT_ID;
+process.env.ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.VITE_ADMIN_EMAIL || "bigardlamine@gmail.com";
+process.env.VITE_ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.VITE_ADMIN_EMAIL || "bigardlamine@gmail.com";
+var app = express();
+var PORT = 3e3;
+app.use(express.json());
+var getAppUrl = () => {
+  const isRealUrl = (v) => !!v && /^https?:\/\//.test(v);
+  const configuredAppUrl = [process.env.NEXT_PUBLIC_APP_URL, process.env.APP_URL].find(isRealUrl);
+  const vercelAppUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : void 0;
+  return (configuredAppUrl || vercelAppUrl || `http://localhost:${PORT}`).replace(/\/$/, "");
+};
+var supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+var supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+var supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+var isSupabaseConfigured = supabaseUrl && supabaseUrl !== "https://your-project-id.supabase.co" && supabaseAnonKey && supabaseAnonKey !== "your-anon-public-key";
+var supabase = isSupabaseConfigured ? createClient(supabaseUrl, supabaseAnonKey) : null;
+var supabaseAdmin = isSupabaseConfigured && supabaseServiceRoleKey ? createClient(supabaseUrl, supabaseServiceRoleKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+}) : supabase;
+console.log(`[Server] Supabase configuration status: ${isSupabaseConfigured ? "CONNECTED" : "DEMO MODE"}`);
+console.log(`[Server] Supabase Admin status: ${supabaseAdmin !== supabase ? "SERVICE ROLE ENABLED" : "FALLBACK MODE"}`);
+app.post("/api/payment/create-cart", async (req, res) => {
+  const { contentId, buyerEmail, buyerFirstName, buyerLastName, buyerPhone } = req.body;
+  if (!contentId || !buyerEmail || !buyerFirstName || !buyerLastName) {
+    return res.status(400).json({ error: "Champs obligatoires manquants (contentId, buyerEmail, buyerFirstName, buyerLastName)." });
+  }
+  try {
+    let content = null;
+    if (supabase) {
+      const { data, error } = await supabase.from("contents").select("*, creator_profiles(*)").eq("id", contentId).maybeSingle();
+      if (error) {
+        console.error("[Server] Supabase error fetching content:", error);
+      }
+      content = data;
+    }
+    if (!content) {
+      const localContents = [
+        {
+          id: "1",
+          creator_id: "creator_1",
+          title: "Pack PDF : Booster son audience TikTok en 30 jours",
+          price_fcfa: 2500,
+          status: "published",
+          is_published: true,
+          creator_profiles: { user_id: "user_1", id: "creator_1" }
+        },
+        {
+          id: "2",
+          creator_id: "creator_1",
+          title: "Template Notion : Organiser ses tournages Reels & TikTok",
+          price_fcfa: 1500,
+          status: "published",
+          is_published: true,
+          creator_profiles: { user_id: "user_1", id: "creator_1" }
+        },
+        {
+          id: "3",
+          creator_id: "creator_1",
+          title: "Masterclass : D\xE9cryptage de l'Algorithme 2026 (Vid\xE9o 20m)",
+          price_fcfa: 5e3,
+          status: "published",
+          is_published: true,
+          creator_profiles: { user_id: "user_1", id: "creator_1" }
+        }
+      ];
+      content = localContents.find((c) => c.id === contentId);
+    }
+    if (!content) {
+      return res.status(404).json({ error: "Contenu non trouv\xE9." });
+    }
+    const price_amount = content.price_fcfa || content.price_amount;
+    const isPublished = content.status === "published" || content.is_published === true;
+    if (!isPublished) {
+      return res.status(400).json({ error: "Ce contenu n'est pas publi\xE9." });
+    }
+    const existingPurchases = serverDb.getPurchases();
+    const hasBought = existingPurchases.some(
+      (p) => p.buyerEmail.toLowerCase() === buyerEmail.toLowerCase() && p.contentId === contentId && p.status === "completed"
+    );
+    if (hasBought) {
+      return res.status(400).json({ error: "Vous avez d\xE9j\xE0 achet\xE9 ce contenu." });
+    }
+    const commission_amount = Math.round(price_amount * 0.18);
+    const creator_net_amount = price_amount - commission_amount;
+    let purchaseId = `purchase_${Math.random().toString(36).substring(2, 11)}`;
+    if (supabase) {
+      try {
+        const { data: pbData, error: pbErr } = await supabase.from("purchases").insert({
+          buyer_phone: buyerPhone || "Non fourni",
+          content_id: contentId,
+          status: "pending",
+          amount_paid_fcfa: price_amount,
+          commission_amount_fcfa: commission_amount,
+          creator_net_amount_fcfa: creator_net_amount,
+          payment_reference: "temp_ref_" + Date.now()
+        }).select().single();
+        if (!pbErr && pbData) {
+          purchaseId = pbData.id;
+        } else {
+          console.error("[Server] Supabase purchase insertion warning:", pbErr);
+        }
+      } catch (dbErr) {
+        console.error("[Server] DB writing exception:", dbErr);
+      }
+    }
+    const localPurchase = serverDb.addPurchase({
+      id: purchaseId,
+      buyerPhone: buyerPhone || "",
+      buyerEmail,
+      buyerFirstName,
+      buyerLastName,
+      contentId,
+      status: "pending",
+      paymentReference: "",
+      // Will be updated to cartId once returned
+      amountPaid: price_amount,
+      commissionAmount: commission_amount,
+      creatorNetAmount: creator_net_amount
+    });
+    const isMaketouConfigured = process.env.MAKETOU_API_KEY && process.env.MAKETOU_PRODUCT_ID;
+    if (isMaketouConfigured) {
+      const appUrl = getAppUrl();
+      const redirectURL = `${appUrl}/payment/confirm?cartId={cartId}&purchaseId=${purchaseId}`;
+      const normalizedPhone = (buyerPhone || "").replace(/[^\d+]/g, "");
+      const isValidE164Phone = /^\+\d{8,15}$/.test(normalizedPhone);
+      const requestBody = {
+        productDocumentId: process.env.MAKETOU_PRODUCT_ID,
+        email: buyerEmail,
+        firstName: buyerFirstName,
+        lastName: buyerLastName,
+        phone: isValidE164Phone ? normalizedPhone : void 0,
+        customerPrice: price_amount,
+        redirectURL,
+        meta: { contentId, purchaseId, buyerEmail }
+      };
+      console.log("[Server] Requesting Maketou checkout:", requestBody);
+      const maketouRes = await fetch("https://api.maketou.net/api/v1/stores/cart/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.MAKETOU_API_KEY}`
+        },
+        body: JSON.stringify(requestBody)
+      });
+      if (!maketouRes.ok) {
+        const errorText = await maketouRes.text();
+        console.error("[Server] Maketou API error:", errorText);
+        throw new Error(`Erreur Maketou API: ${maketouRes.statusText}`);
+      }
+      const maketouData = await maketouRes.json();
+      console.log("[Server] Maketou Response:", maketouData);
+      const cart = maketouData.cart || maketouData || {};
+      const cartId = cart.id || cart.cartId || cart.uuid || maketouData.id || maketouData.cartId || maketouData.cart_id || maketouData.uuid;
+      const redirectUrl = maketouData.redirectUrl || maketouData.checkoutUrl || maketouData.checkout_url || maketouData.url || maketouData.paymentUrl || maketouData.payment_url || cart.redirectUrl || cart.checkoutUrl || cart.checkout_url || cart.url || cart.paymentUrl || cart.payment_url;
+      if (!cartId || !redirectUrl) {
+        console.error("[Server] Missing keys in Maketou response. Full response:", JSON.stringify(maketouData));
+        throw new Error(`Donn\xE9es de panier ou d'URL de redirection manquantes dans la r\xE9ponse Maketou. R\xE9ponse re\xE7ue: ${JSON.stringify(maketouData)}`);
+      }
+      serverDb.updatePurchase(purchaseId, { paymentReference: cartId });
+      serverDb.addTransaction({
+        provider: "maketou",
+        providerTransactionId: cartId,
+        status: "pending",
+        type: "purchase"
+      });
+      if (supabase) {
+        try {
+          await supabase.from("transactions").insert({
+            provider: "maketou",
+            provider_transaction_id: cartId,
+            status: "pending",
+            type: "purchase"
+          }).select().maybeSingle();
+          await supabase.from("purchases").update({ payment_reference: cartId }).eq("id", purchaseId);
+        } catch (dbErr) {
+          console.warn("[Server] Supabase transaction update skipped or failed:", dbErr);
+        }
+      }
+      return res.json({ redirectUrl });
+    } else {
+      console.log("[Server] Maketou not configured. Simulating payment checkout redirect.");
+      const mockCartId = `mock_cart_${Math.random().toString(36).substring(2, 11)}`;
+      serverDb.updatePurchase(purchaseId, { paymentReference: mockCartId });
+      serverDb.addTransaction({
+        provider: "maketou",
+        providerTransactionId: mockCartId,
+        status: "pending",
+        type: "purchase"
+      });
+      const appUrl = getAppUrl();
+      const simulatedRedirectUrl = `${appUrl}/payment/confirm?cartId=${mockCartId}&purchaseId=${purchaseId}`;
+      return res.json({ redirectUrl: simulatedRedirectUrl });
+    }
+  } catch (err) {
+    console.error("[Server] Create Cart handler error:", err);
+    return res.status(500).json({ error: err.message || "Une erreur interne est survenue lors de l'initialisation du paiement." });
+  }
+});
+app.get("/api/payment/check-status", async (req, res) => {
+  const { cartId, purchaseId } = req.query;
+  if (!cartId || !purchaseId) {
+    return res.status(400).json({ error: "Param\xE8tres cartId et purchaseId requis." });
+  }
+  try {
+    const purchase = serverDb.getPurchase(purchaseId);
+    if (!purchase) {
+      return res.status(404).json({ error: "Achat non trouv\xE9." });
+    }
+    let contentTitle = "Contenu exclusif";
+    let creatorUsername = "michella_coaching";
+    if (supabase) {
+      try {
+        const { data: contentData } = await supabase.from("contents").select("title, creator_profiles(username)").eq("id", purchase.contentId).maybeSingle();
+        if (contentData) {
+          contentTitle = contentData.title;
+          if (contentData.creator_profiles) {
+            creatorUsername = contentData.creator_profiles.username || "michella_coaching";
+          }
+        }
+      } catch (err) {
+        console.warn("[Server] Error fetching content title inside check-status:", err);
+      }
+    } else {
+      const localContents = [
+        { id: "1", title: "Pack PDF : Booster son audience TikTok en 30 jours", creatorUsername: "michella_coaching" },
+        { id: "2", title: "Template Notion : Organiser ses tournages Reels & TikTok", creatorUsername: "michella_coaching" },
+        { id: "3", title: "Masterclass : D\xE9cryptage de l'Algorithme 2026 (Vid\xE9o 20m)", creatorUsername: "michella_coaching" }
+      ];
+      const found = localContents.find((c) => c.id === purchase.contentId);
+      if (found) {
+        contentTitle = found.title;
+        creatorUsername = found.creatorUsername;
+      } else {
+        contentTitle = "Votre contenu exclusif";
+      }
+    }
+    let statusToSet = "waiting_payment";
+    const isMock = cartId.startsWith("mock_") || !process.env.MAKETOU_API_KEY;
+    if (isMock) {
+      statusToSet = "completed";
+    } else {
+      console.log(`[Server] Polling Maketou status for cart ${cartId}`);
+      const maketouRes = await fetch(`https://api.maketou.net/api/v1/stores/cart/${cartId}`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${process.env.MAKETOU_API_KEY}`
+        }
+      });
+      if (!maketouRes.ok) {
+        console.error("[Server] Maketou status check error:", maketouRes.statusText);
+        return res.status(500).json({ error: "Impossible de v\xE9rifier le statut aupr\xE8s de Maketou." });
+      }
+      const cartData = await maketouRes.json();
+      console.log("[Server] Maketou Cart status details:", cartData);
+      const cartStatus = cartData.status || cartData.cart?.status;
+      if (cartStatus === "completed" || cartStatus === "success") {
+        statusToSet = "completed";
+      } else if (cartStatus === "payment_failed" || cartStatus === "failed" || cartStatus === "abandoned") {
+        statusToSet = "failed";
+      } else {
+        statusToSet = "waiting_payment";
+      }
+    }
+    if (statusToSet === "completed") {
+      serverDb.updatePurchase(purchase.id, { status: "completed", purchasedAt: (/* @__PURE__ */ new Date()).toISOString() });
+      serverDb.updateTransactionByCart(cartId, { status: "success" });
+      let creatorUserId = null;
+      if (supabase) {
+        try {
+          const { data: contentData } = await supabase.from("contents").select("*, creator_profiles(*)").eq("id", purchase.contentId).maybeSingle();
+          if (contentData) {
+            creatorUserId = contentData.creator_profiles?.user_id || contentData.creator_profiles?.id;
+          }
+          await supabase.from("purchases").update({ status: "completed" }).eq("id", purchase.id);
+          try {
+            await supabase.from("transactions").update({ status: "success" }).eq("provider_transaction_id", cartId);
+          } catch (e) {
+          }
+          if (creatorUserId) {
+            await supabase.from("notifications").insert({
+              user_id: creatorUserId,
+              title: "Nouvelle vente !",
+              message: `L'acheteur ${purchase.buyerFirstName} a d\xE9bloqu\xE9 votre contenu "${contentTitle}" pour ${purchase.amountPaid} FCFA.`,
+              is_read: false
+            });
+          }
+        } catch (dbErr) {
+          console.error("[Server] Supabase completed status write warning:", dbErr);
+        }
+      }
+      serverDb.addNotification({
+        userId: creatorUserId || "creator_1",
+        type: "new_sale",
+        title: "Nouvelle vente !",
+        message: `L'acheteur ${purchase.buyerFirstName} a d\xE9bloqu\xE9 votre contenu "${contentTitle}" pour ${purchase.amountPaid} FCFA.`
+      });
+      return res.json({ status: "completed", contentId: purchase.contentId, contentTitle, creatorUsername });
+    } else if (statusToSet === "failed") {
+      serverDb.updatePurchase(purchase.id, { status: "failed" });
+      serverDb.updateTransactionByCart(cartId, { status: "failed" });
+      if (supabase) {
+        try {
+          await supabase.from("purchases").update({ status: "failed" }).eq("id", purchase.id);
+          try {
+            await supabase.from("transactions").update({ status: "failed" }).eq("provider_transaction_id", cartId);
+          } catch (e) {
+          }
+        } catch (dbErr) {
+          console.error("[Server] Supabase failed status write warning:", dbErr);
+        }
+      }
+      return res.json({ status: "failed", contentId: purchase.contentId, contentTitle, creatorUsername });
+    } else {
+      return res.json({ status: "waiting_payment", contentId: purchase.contentId, contentTitle, creatorUsername });
+    }
+  } catch (err) {
+    console.error("[Server] Status verification error:", err);
+    return res.status(500).json({ error: err.message || "Erreur lors de la v\xE9rification." });
+  }
+});
+app.post("/api/payment/create-anonymous-cart", async (req, res) => {
+  try {
+    const isMaketouConfigured = process.env.MAKETOU_API_KEY && process.env.MAKETOU_PRODUCT_ID;
+    const price_amount = 2500;
+    const buyerEmail = "anonymous-payment@example.com";
+    const buyerFirstName = "Client";
+    const buyerLastName = "Anonyme";
+    if (isMaketouConfigured) {
+      const appUrl = getAppUrl();
+      const redirectURL = `${appUrl}/pay/confirm?cartId={cartId}`;
+      const requestBody = {
+        productDocumentId: process.env.MAKETOU_PRODUCT_ID,
+        email: buyerEmail,
+        firstName: buyerFirstName,
+        lastName: buyerLastName,
+        customerPrice: price_amount,
+        redirectURL,
+        meta: { isAnonymous: true }
+      };
+      console.log("[Server] Requesting anonymous Maketou checkout:", requestBody);
+      const maketouRes = await fetch("https://api.maketou.net/api/v1/stores/cart/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.MAKETOU_API_KEY}`
+        },
+        body: JSON.stringify(requestBody)
+      });
+      if (!maketouRes.ok) {
+        const errorText = await maketouRes.text();
+        console.error("[Server] Anonymous Maketou API error:", errorText);
+        throw new Error(`Erreur Maketou API: ${maketouRes.statusText}`);
+      }
+      const maketouData = await maketouRes.json();
+      console.log("[Server] Anonymous Maketou Response:", maketouData);
+      const cart = maketouData.cart || maketouData || {};
+      const cartId = cart.id || cart.cartId || cart.uuid || maketouData.id || maketouData.cartId || maketouData.cart_id || maketouData.uuid;
+      const redirectUrl = maketouData.redirectUrl || maketouData.checkoutUrl || maketouData.checkout_url || maketouData.url || maketouData.paymentUrl || maketouData.payment_url || cart.redirectUrl || cart.checkoutUrl || cart.checkout_url || cart.url || cart.paymentUrl || cart.payment_url;
+      if (!cartId || !redirectUrl) {
+        console.error("[Server] Missing keys in Maketou response. Full response:", JSON.stringify(maketouData));
+        throw new Error(`Donn\xE9es de panier ou d'URL de redirection manquantes dans la r\xE9ponse Maketou.`);
+      }
+      return res.json({ redirectUrl });
+    } else {
+      console.log("[Server] Maketou not configured. Simulating anonymous checkout.");
+      const mockCartId = `mock_cart_anon_${Math.random().toString(36).substring(2, 11)}`;
+      const appUrl = getAppUrl();
+      const simulatedRedirectUrl = `${appUrl}/pay/confirm?cartId=${mockCartId}`;
+      return res.json({ redirectUrl: simulatedRedirectUrl });
+    }
+  } catch (err) {
+    console.error("[Server] Create Anonymous Cart error:", err);
+    return res.status(500).json({ error: err.message || "Une erreur interne est survenue lors de l'initialisation." });
+  }
+});
+app.get("/api/payment/check-anonymous-status", async (req, res) => {
+  const { cartId } = req.query;
+  if (!cartId) {
+    return res.status(400).json({ error: "Param\xE8tre cartId requis." });
+  }
+  try {
+    const isMock = cartId.startsWith("mock_") || !process.env.MAKETOU_API_KEY;
+    if (isMock) {
+      return res.json({ status: "completed" });
+    } else {
+      console.log(`[Server] Polling Maketou status for anonymous cart ${cartId}`);
+      const maketouRes = await fetch(`https://api.maketou.net/api/v1/stores/cart/${cartId}`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${process.env.MAKETOU_API_KEY}`
+        }
+      });
+      if (!maketouRes.ok) {
+        console.error("[Server] Anonymous Maketou status check error:", maketouRes.statusText);
+        return res.status(500).json({ error: "Impossible de v\xE9rifier le statut aupr\xE8s de Maketou." });
+      }
+      const cartData = await maketouRes.json();
+      console.log("[Server] Anonymous Maketou Cart status details:", cartData);
+      const cartStatus = cartData.status || cartData.cart?.status;
+      let statusToReturn = "waiting_payment";
+      if (cartStatus === "completed" || cartStatus === "success") {
+        statusToReturn = "completed";
+      } else if (cartStatus === "payment_failed" || cartStatus === "failed" || cartStatus === "abandoned") {
+        statusToReturn = "failed";
+      }
+      return res.json({ status: statusToReturn });
+    }
+  } catch (err) {
+    console.error("[Server] Anonymous status verification error:", err);
+    return res.status(500).json({ error: err.message || "Erreur lors de la v\xE9rification." });
+  }
+});
+app.get("/api/payment/access-list", async (req, res) => {
+  const { email } = req.query;
+  if (!email) {
+    return res.status(400).json({ error: "Email requis." });
+  }
+  try {
+    const purchases = serverDb.getPurchases();
+    const activePurchases = purchases.filter(
+      (p) => p.buyerEmail.toLowerCase() === email.toLowerCase() && p.status === "completed"
+    );
+    const contentIds = activePurchases.map((p) => p.contentId);
+    return res.json({ contentIds });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+app.get("/api/payment/access", async (req, res) => {
+  const { contentId, email } = req.query;
+  if (!contentId || !email) {
+    return res.status(400).json({ error: "Champs contentId et email requis." });
+  }
+  try {
+    const purchases = serverDb.getPurchases();
+    const hasAccess = purchases.some(
+      (p) => p.contentId === contentId && p.buyerEmail.toLowerCase() === email.toLowerCase() && p.status === "completed"
+    );
+    if (!hasAccess) {
+      return res.json({ hasAccess: false });
+    }
+    let fileUrl = "";
+    if (supabase) {
+      const { data } = await supabase.from("contents").select("file_url").eq("id", contentId).maybeSingle();
+      if (data) {
+        fileUrl = data.file_url;
+      }
+    }
+    if (!fileUrl) {
+      const defaults = {
+        "1": "https://example.com/secured/guide-tiktok.pdf",
+        "2": "https://example.com/secured/notion-template.zip",
+        "3": "https://example.com/secured/masterclass-algo.mp4"
+      };
+      fileUrl = defaults[contentId] || "https://example.com/secured/content.zip";
+    }
+    let signedUrl = fileUrl;
+    if (supabase && fileUrl) {
+      try {
+        let storagePath = fileUrl;
+        if (fileUrl.includes("/storage/v1/object/private/contents/")) {
+          storagePath = fileUrl.split("/storage/v1/object/private/contents/")[1];
+        } else if (fileUrl.includes("/storage/v1/object/public/contents/")) {
+          storagePath = fileUrl.split("/storage/v1/object/public/contents/")[1];
+        } else if (fileUrl.startsWith("http")) {
+          const parsed = new URL(fileUrl);
+          const paths = parsed.pathname.split("/");
+          storagePath = paths[paths.length - 1];
+        }
+        const { data, error } = await supabase.storage.from("contents").createSignedUrl(storagePath, 3600);
+        if (!error && data?.signedUrl) {
+          signedUrl = data.signedUrl;
+        } else if (error) {
+          console.warn("[Server] Supabase Storage signed URL generation error:", error.message);
+        }
+      } catch (err) {
+        console.error("[Server] Exception generating signed URL:", err);
+      }
+    }
+    return res.json({ hasAccess: true, signedUrl });
+  } catch (err) {
+    console.error("[Server] Access check error:", err);
+    return res.status(500).json({ error: err.message || "Une erreur est survenue lors de la v\xE9rification des acc\xE8s." });
+  }
+});
+async function isCreatorSubscribedServer(creatorId) {
+  const graceLimit = new Date(Date.now() - 3 * 24 * 60 * 60 * 1e3);
+  if (supabase) {
+    try {
+      const { data: creator, error: cpError } = await supabase.from("creator_profiles").select("is_premium, premium_expires_at").eq("id", creatorId).maybeSingle();
+      if (!cpError && creator?.is_premium) {
+        if (!creator.premium_expires_at || new Date(creator.premium_expires_at).getTime() > graceLimit.getTime()) {
+          return true;
+        }
+      }
+      const { data, error } = await supabase.from("subscriptions").select("end_date").eq("creator_id", creatorId).eq("status", "active").gt("end_date", graceLimit.toISOString()).maybeSingle();
+      if (!error && data) {
+        return true;
+      }
+    } catch (err) {
+      console.warn("[Server] Supabase error in isCreatorSubscribedServer:", err);
+    }
+  }
+  const localCreator = serverDb.getCreators().find((c) => c.id === creatorId);
+  if (localCreator && localCreator.is_premium) {
+    return true;
+  }
+  return serverDb.isCreatorSubscribed(creatorId);
+}
+async function apply_subscription_expiry() {
+  console.log("[Server] Running apply_subscription_expiry check...");
+  const now = /* @__PURE__ */ new Date();
+  const thresholdDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1e3);
+  try {
+    if (supabase) {
+      try {
+        const { data: expiredSubs, error: subErr } = await supabase.from("subscriptions").select("id, creator_id, end_date").eq("status", "active").lt("end_date", thresholdDate.toISOString());
+        if (!subErr && expiredSubs && expiredSubs.length > 0) {
+          for (const sub of expiredSubs) {
+            const { data: creatorProfile } = await supabase.from("creator_profiles").select("is_premium, premium_expires_at").eq("id", sub.creator_id).maybeSingle();
+            if (creatorProfile?.is_premium) {
+              if (!creatorProfile.premium_expires_at || new Date(creatorProfile.premium_expires_at).getTime() > Date.now()) {
+                console.log(`[Server] Skipping auto-drafting for premium creator ${sub.creator_id}`);
+                continue;
+              }
+            }
+            console.log(`[Server] Subscription ${sub.id} is expired past grace. Setting status and drafting contents.`);
+            await supabase.from("subscriptions").update({ status: "expired" }).eq("id", sub.id);
+            const { error: draftErr } = await supabase.from("contents").update({
+              status: "draft",
+              is_published: false,
+              auto_drafted_by_subscription: true
+            }).eq("creator_id", sub.creator_id).eq("status", "published");
+            if (draftErr) {
+              console.error(`[Server] Error auto-drafting content for creator ${sub.creator_id}:`, draftErr);
+            }
+          }
+        }
+      } catch (dbErr) {
+        console.error("[Server] Supabase subscription expiry job warning:", dbErr);
+      }
+    }
+    const localSubs = serverDb.getSubscriptions();
+    const activeExpired = localSubs.filter((s) => s.status === "active" && new Date(s.endDate) < thresholdDate);
+    for (const sub of activeExpired) {
+      console.log(`[Server Local] Subscription ${sub.id} expired past grace.`);
+      serverDb.updateSubscription(sub.id, { status: "expired" });
+    }
+  } catch (err) {
+    console.error("[Server] apply_subscription_expiry error:", err);
+  }
+}
+setInterval(apply_subscription_expiry, 60 * 60 * 1e3);
+setTimeout(apply_subscription_expiry, 1e4);
+app.post("/api/subscription/create-cart", async (req, res) => {
+  const { creatorId, buyerEmail, buyerFirstName, buyerLastName, buyerPhone } = req.body;
+  if (!creatorId) {
+    return res.status(400).json({ error: "creatorId est requis." });
+  }
+  try {
+    const amount = 5e3;
+    const productDocumentId = process.env.MAKETOU_PRODUCT_ID || "";
+    const firstName = buyerFirstName || "Abonn\xE9";
+    const lastName = buyerLastName || "Cr\xE9ateur";
+    const email = buyerEmail || "abonne@momo.com";
+    const hasMaketou = !!process.env.MAKETOU_API_KEY;
+    let phoneToUse = (buyerPhone || "").replace(/[\s\-\(\)]/g, "");
+    if (!phoneToUse || phoneToUse === "") {
+      phoneToUse = "+221771234567";
+    } else if (!phoneToUse.startsWith("+")) {
+      phoneToUse = "+" + phoneToUse;
+    }
+    if (hasMaketou && productDocumentId) {
+      const appUrl = getAppUrl();
+      const redirectURL = `${appUrl}/subscription/confirm?cartId={cartId}&creatorId=${creatorId}`;
+      const body = {
+        productDocumentId,
+        email,
+        firstName,
+        lastName,
+        phone: phoneToUse,
+        customerPrice: amount,
+        redirectURL,
+        meta: {
+          type: "subscription",
+          creatorId
+        }
+      };
+      console.log("[Server] Initializing Maketou Cart for Subscription:", body);
+      const maketouRes = await fetch("https://api.maketou.net/api/v1/stores/cart/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.MAKETOU_API_KEY}`
+        },
+        body: JSON.stringify(body)
+      });
+      if (!maketouRes.ok) {
+        const errorText = await maketouRes.text();
+        console.error("[Server] Maketou subscription cart creation failed:", errorText);
+        throw new Error(`Erreur Maketou: ${errorText}`);
+      }
+      const maketouData = await maketouRes.json();
+      const cart = maketouData.cart || maketouData || {};
+      const cartId = cart.id || cart.cartId || cart.uuid || maketouData.id || maketouData.cartId || maketouData.cart_id || maketouData.uuid;
+      const redirectUrlRaw = maketouData.redirectUrl || maketouData.checkoutUrl || maketouData.checkout_url || maketouData.url || maketouData.paymentUrl || maketouData.payment_url || cart.redirectUrl || cart.checkoutUrl || cart.checkout_url || cart.url || cart.paymentUrl || cart.payment_url;
+      if (!cartId || !redirectUrlRaw) {
+        throw new Error("Donn\xE9es de panier ou d'URL de redirection manquantes dans la r\xE9ponse Maketou.");
+      }
+      serverDb.addTransaction({
+        provider: "maketou",
+        providerTransactionId: cartId,
+        status: "pending",
+        type: "subscription"
+      });
+      if (supabase) {
+        try {
+          await supabase.from("transactions").insert({
+            provider: "maketou",
+            provider_transaction_id: cartId,
+            status: "pending",
+            type: "subscription"
+          });
+        } catch (dbErr) {
+          console.warn("[Server] Supabase subscription transaction warning:", dbErr);
+        }
+      }
+      return res.json({ redirectUrl: redirectUrlRaw });
+    } else {
+      console.log("[Server] Maketou not configured. Simulating subscription redirect.");
+      const mockCartId = `mock_sub_${Math.random().toString(36).substring(2, 11)}`;
+      serverDb.addTransaction({
+        provider: "maketou",
+        providerTransactionId: mockCartId,
+        status: "pending",
+        type: "subscription"
+      });
+      const appUrl = getAppUrl();
+      const simulatedRedirectUrl = `${appUrl}/subscription/confirm?cartId=${mockCartId}&creatorId=${creatorId}`;
+      return res.json({ redirectUrl: simulatedRedirectUrl });
+    }
+  } catch (err) {
+    console.error("[Server] Create Subscription Cart handler error:", err);
+    return res.status(500).json({ error: err.message || "Une erreur interne est survenue." });
+  }
+});
+app.get("/api/subscription/check-status", async (req, res) => {
+  const { cartId, creatorId } = req.query;
+  if (!cartId || !creatorId) {
+    return res.status(400).json({ error: "Param\xE8tres cartId et creatorId requis." });
+  }
+  try {
+    let statusToSet = "waiting_payment";
+    const isMock = cartId.startsWith("mock_") || !process.env.MAKETOU_API_KEY;
+    if (isMock) {
+      statusToSet = "completed";
+    } else {
+      console.log(`[Server] Polling Maketou subscription status for cart ${cartId}`);
+      const maketouRes = await fetch(`https://api.maketou.net/api/v1/stores/cart/${cartId}`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${process.env.MAKETOU_API_KEY}`
+        }
+      });
+      if (!maketouRes.ok) {
+        console.error("[Server] Maketou status check error:", maketouRes.statusText);
+        return res.status(500).json({ error: "Impossible de v\xE9rifier le statut aupr\xE8s de Maketou." });
+      }
+      const cartData = await maketouRes.json();
+      const cartStatus = cartData.status || cartData.cart?.status;
+      if (cartStatus === "completed" || cartStatus === "success") {
+        statusToSet = "completed";
+      } else if (cartStatus === "payment_failed" || cartStatus === "failed" || cartStatus === "abandoned") {
+        statusToSet = "failed";
+      } else {
+        statusToSet = "waiting_payment";
+      }
+    }
+    if (statusToSet === "completed") {
+      serverDb.updateTransactionByCart(cartId, { status: "success" });
+      const startDate = /* @__PURE__ */ new Date();
+      const endDate = /* @__PURE__ */ new Date();
+      endDate.setDate(startDate.getDate() + 30);
+      serverDb.addSubscription({
+        creatorId,
+        amountPaid: 5e3,
+        currency: "XOF",
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        status: "active"
+      });
+      let restoredCount = 0;
+      if (supabase) {
+        try {
+          const { data: contentsToRestore } = await supabase.from("contents").select("id").eq("creator_id", creatorId).eq("auto_drafted_by_subscription", true);
+          restoredCount = contentsToRestore?.length || 0;
+          await supabase.from("contents").update({
+            status: "published",
+            is_published: true,
+            auto_drafted_by_subscription: false
+          }).eq("creator_id", creatorId).eq("auto_drafted_by_subscription", true);
+          await supabase.from("subscriptions").insert({
+            creator_id: creatorId,
+            amount_paid: 5e3,
+            currency: "XOF",
+            start_date: startDate.toISOString(),
+            end_date: endDate.toISOString(),
+            status: "active"
+          });
+          try {
+            await supabase.from("transactions").insert({
+              provider: "maketou",
+              provider_transaction_id: cartId,
+              status: "success",
+              type: "subscription"
+            });
+          } catch (txErr) {
+            await supabase.from("transactions").update({ status: "success" }).eq("provider_transaction_id", cartId);
+          }
+        } catch (dbErr) {
+          console.error("[Server] Supabase subscription completed warning:", dbErr);
+        }
+      }
+      serverDb.addNotification({
+        userId: creatorId,
+        type: "system",
+        title: "Abonnement activ\xE9 !",
+        message: `Votre abonnement de 5 000 FCFA est actif jusqu'au ${endDate.toLocaleDateString("fr-FR")}.`
+      });
+      return res.json({
+        status: "completed",
+        endDate: endDate.toISOString(),
+        restoredCount
+      });
+    } else if (statusToSet === "failed") {
+      serverDb.updateTransactionByCart(cartId, { status: "failed" });
+      if (supabase) {
+        try {
+          await supabase.from("transactions").update({ status: "failed" }).eq("provider_transaction_id", cartId);
+        } catch (e) {
+        }
+      }
+      return res.json({ status: "failed" });
+    } else {
+      return res.json({ status: "waiting_payment" });
+    }
+  } catch (err) {
+    console.error("[Server] Check subscription status error:", err);
+    return res.status(500).json({ error: err.message || "Une erreur est survenue." });
+  }
+});
+app.get("/api/subscription/status", async (req, res) => {
+  const { creatorId } = req.query;
+  if (!creatorId) {
+    return res.status(400).json({ error: "creatorId est requis." });
+  }
+  try {
+    let subscriptionsList = [];
+    let isPremiumFromProfile = false;
+    let premiumExpiresAt = null;
+    if (supabase) {
+      try {
+        const { data: profile, error: profErr } = await supabase.from("creator_profiles").select("is_premium, premium_expires_at").eq("id", creatorId).maybeSingle();
+        if (!profErr && profile) {
+          isPremiumFromProfile = profile.is_premium;
+          premiumExpiresAt = profile.premium_expires_at;
+        }
+        const { data, error } = await supabase.from("subscriptions").select("*").eq("creator_id", creatorId).order("created_at", { ascending: false });
+        if (!error && data) {
+          subscriptionsList = data;
+        }
+      } catch (err) {
+        console.warn("[Server] Supabase error loading subscriptions:", err);
+      }
+    } else {
+      const creator = serverDb.getCreators().find((c) => c.id === creatorId);
+      if (creator) {
+        isPremiumFromProfile = creator.is_premium === true;
+        premiumExpiresAt = creator.premium_expires_at || null;
+      }
+    }
+    const localSubs = serverDb.getCreatorSubscriptions(creatorId);
+    if (subscriptionsList.length === 0 && localSubs.length > 0) {
+      subscriptionsList = localSubs.map((s) => ({
+        id: s.id,
+        creator_id: s.creatorId,
+        transaction_id: s.transactionId,
+        amount_paid: s.amountPaid,
+        currency: s.currency,
+        start_date: s.startDate,
+        end_date: s.endDate,
+        status: s.status,
+        created_at: s.createdAt
+      }));
+    }
+    let activeSub = subscriptionsList.find((s) => s.status === "active");
+    if (!activeSub && isPremiumFromProfile) {
+      activeSub = {
+        id: "sub_profile_premium",
+        creator_id: creatorId,
+        amount_paid: 5e3,
+        currency: "XOF",
+        start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3).toISOString(),
+        end_date: premiumExpiresAt || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3).toISOString(),
+        status: "active",
+        created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3).toISOString()
+      };
+      subscriptionsList.unshift(activeSub);
+    }
+    let autoDraftedCount = 0;
+    if (supabase) {
+      try {
+        const { count } = await supabase.from("contents").select("id", { count: "exact", head: true }).eq("creator_id", creatorId).eq("auto_drafted_by_subscription", true);
+        autoDraftedCount = count || 0;
+      } catch (e) {
+      }
+    }
+    return res.json({
+      subscriptions: subscriptionsList,
+      activeSubscription: activeSub || null,
+      autoDraftedCount
+    });
+  } catch (err) {
+    console.error("[Server] Get subscription status error:", err);
+    return res.status(500).json({ error: err.message || "Une erreur est survenue." });
+  }
+});
+app.get("/api/subscription/check-subscribed", async (req, res) => {
+  const { creatorId } = req.query;
+  if (!creatorId) {
+    return res.status(400).json({ error: "creatorId est requis." });
+  }
+  try {
+    const subscribed = await isCreatorSubscribedServer(creatorId);
+    return res.json({ subscribed });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+app.post("/api/subscription/apply-expiry", async (req, res) => {
+  try {
+    await apply_subscription_expiry();
+    return res.json({ success: true, message: "Expiration check completed." });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+app.get("/api/portal/verify", async (req, res) => {
+  const { email } = req.query;
+  if (!email) {
+    return res.status(400).json({ error: "Email requis." });
+  }
+  try {
+    const emailStr = email.toLowerCase().trim();
+    const purchases = serverDb.getPurchases();
+    const exists = purchases.some(
+      (p) => p.buyerEmail.toLowerCase() === emailStr && p.status === "completed"
+    );
+    return res.json({ exists });
+  } catch (err) {
+    console.error("[Server] Portal verify error:", err);
+    return res.status(500).json({ error: "Une erreur est survenue lors de la v\xE9rification de l'email." });
+  }
+});
+app.get("/api/portal/purchases", async (req, res) => {
+  const { email } = req.query;
+  if (!email) {
+    return res.status(400).json({ error: "Email requis." });
+  }
+  try {
+    const emailStr = email.toLowerCase().trim();
+    const purchases = serverDb.getPurchases().filter(
+      (p) => p.buyerEmail.toLowerCase() === emailStr && p.status === "completed"
+    );
+    purchases.sort((a, b) => {
+      const dateA = a.purchasedAt || a.createdAt;
+      const dateB = b.purchasedAt || b.createdAt;
+      return new Date(dateB).getTime() - new Date(dateA).getTime();
+    });
+    if (purchases.length === 0) {
+      return res.json([]);
+    }
+    const contentIds = Array.from(new Set(purchases.map((p) => p.contentId)));
+    let fetchedContents = [];
+    if (supabase && contentIds.length > 0) {
+      const { data, error } = await supabase.from("contents").select("*, creator_profiles(*)").in("id", contentIds);
+      if (!error && data) {
+        fetchedContents = data;
+      }
+    }
+    const localContents = [
+      {
+        id: "1",
+        creator_id: "creator_1",
+        title: "Pack PDF : Booster son audience TikTok en 30 jours",
+        content_type: "pdf",
+        preview_url: null,
+        price_fcfa: 2500,
+        creator_profiles: {
+          id: "creator_1",
+          username: "michella_coaching",
+          display_name: "Michella Coaching",
+          avatar_url: null
+        }
+      },
+      {
+        id: "2",
+        creator_id: "creator_1",
+        title: "Template Notion : Organiser ses tournages Reels & TikTok",
+        content_type: "pdf",
+        preview_url: null,
+        price_fcfa: 1500,
+        creator_profiles: {
+          id: "creator_1",
+          username: "michella_coaching",
+          display_name: "Michella Coaching",
+          avatar_url: null
+        }
+      },
+      {
+        id: "3",
+        creator_id: "creator_1",
+        title: "Masterclass : D\xE9cryptage de l'Algorithme 2026 (Vid\xE9o 20m)",
+        content_type: "video",
+        preview_url: null,
+        price_fcfa: 5e3,
+        creator_profiles: {
+          id: "creator_1",
+          username: "michella_coaching",
+          display_name: "Michella Coaching",
+          avatar_url: null
+        }
+      }
+    ];
+    const contentsMap = /* @__PURE__ */ new Map();
+    for (const item of localContents) {
+      contentsMap.set(item.id, item);
+    }
+    for (const item of fetchedContents) {
+      contentsMap.set(item.id, {
+        id: item.id,
+        creator_id: item.creator_id,
+        title: item.title,
+        content_type: item.content_type,
+        preview_url: item.preview_url,
+        price_fcfa: item.price_fcfa,
+        creator_profiles: item.creator_profiles ? {
+          id: item.creator_profiles.id,
+          username: item.creator_profiles.username,
+          display_name: item.creator_profiles.display_name,
+          avatar_url: item.creator_profiles.avatar_url
+        } : null
+      });
+    }
+    const creatorGroupsMap = /* @__PURE__ */ new Map();
+    for (const p of purchases) {
+      const content = contentsMap.get(p.contentId) || {
+        id: p.contentId,
+        title: "Contenu exclusif d\xE9bloqu\xE9",
+        content_type: "pdf",
+        preview_url: null,
+        price_fcfa: p.amountPaid,
+        creator_profiles: {
+          id: "creator_unknown",
+          username: "unknown_creator",
+          display_name: "Cr\xE9ateur Exclusif",
+          avatar_url: null
+        }
+      };
+      const creator = content.creator_profiles || {
+        id: content.creator_id || "creator_unknown",
+        username: "unknown_creator",
+        display_name: "Cr\xE9ateur Exclusif",
+        avatar_url: null
+      };
+      const creatorId = creator.id;
+      if (!creatorGroupsMap.has(creatorId)) {
+        creatorGroupsMap.set(creatorId, {
+          creator: {
+            id: creatorId,
+            username: creator.username,
+            display_name: creator.display_name,
+            avatar_url: creator.avatar_url
+          },
+          purchases: []
+        });
+      }
+      creatorGroupsMap.get(creatorId).purchases.push({
+        purchaseId: p.id,
+        contentId: p.contentId,
+        title: content.title,
+        content_type: content.content_type || "pdf",
+        preview_url: content.preview_url,
+        price_fcfa: p.amountPaid,
+        purchased_at: p.purchasedAt || p.createdAt
+      });
+    }
+    return res.json(Array.from(creatorGroupsMap.values()));
+  } catch (err) {
+    console.error("[Server] Portal purchases error:", err);
+    return res.status(500).json({ error: "Une erreur est survenue lors de la r\xE9cup\xE9ration des achats." });
+  }
+});
+app.get("/api/portal/creator-purchases", async (req, res) => {
+  const { email, creatorId } = req.query;
+  if (!email || !creatorId) {
+    return res.status(400).json({ error: "Champs email et creatorId requis." });
+  }
+  try {
+    const emailStr = email.toLowerCase().trim();
+    const purchases = serverDb.getPurchases().filter(
+      (p) => p.buyerEmail.toLowerCase() === emailStr && p.status === "completed"
+    );
+    if (purchases.length === 0) {
+      return res.json({ purchasedContentIds: [] });
+    }
+    const contentIds = purchases.map((p) => p.contentId);
+    let creatorContentIds = [];
+    if (supabase) {
+      const { data, error } = await supabase.from("contents").select("id").eq("creator_id", creatorId).in("id", contentIds);
+      if (!error && data) {
+        creatorContentIds = data.map((c) => c.id);
+      }
+    }
+    const localContentCreatorMap = {
+      "1": "creator_1",
+      "2": "creator_1",
+      "3": "creator_1"
+    };
+    const finalIds = /* @__PURE__ */ new Set();
+    const purchaseMap = {};
+    for (const id of creatorContentIds) {
+      finalIds.add(id);
+    }
+    for (const p of purchases) {
+      const cid = p.contentId;
+      purchaseMap[cid] = p.id;
+      if (localContentCreatorMap[cid] === creatorId) {
+        finalIds.add(cid);
+      }
+    }
+    return res.json({ purchasedContentIds: Array.from(finalIds), purchaseMap });
+  } catch (err) {
+    console.error("[Server] Portal creator purchases error:", err);
+    return res.status(500).json({ error: "Une erreur est survenue lors de la v\xE9rification des achats cr\xE9ateur." });
+  }
+});
+var adminMiddleware = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const adminEmail = process.env.ADMIN_EMAIL || "bigardlamine@gmail.com";
+  if (!supabase) {
+    return next();
+  }
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Non autoris\xE9 : En-t\xEAte Authorization manquant ou invalide." });
+  }
+  const token = authHeader.slice(7);
+  if (token === adminEmail && process.env.NODE_ENV !== "production") {
+    return next();
+  }
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      console.error("[Admin Auth] Supabase getUser error:", error);
+      return res.status(401).json({ error: "Non autoris\xE9 : Token invalide ou expir\xE9." });
+    }
+    if (user.email !== adminEmail) {
+      console.warn(`[Admin Auth] Access forbidden: logged in as ${user.email} but expected ${adminEmail}`);
+      return res.status(403).json({ error: "Interdit : Vous n'avez pas les droits d'administration." });
+    }
+    return next();
+  } catch (err) {
+    console.error("[Admin Auth] Exception verifying token:", err);
+    return res.status(500).json({ error: "Erreur interne lors de la validation des droits admin." });
+  }
+};
+app.use("/api/admin", adminMiddleware);
+app.get("/api/admin/check", (req, res) => {
+  return res.json({ isAdmin: true });
+});
+var getCreatorBalance = async (creatorId) => {
+  if (supabaseAdmin) {
+    const { data: contents } = await supabaseAdmin.from("contents").select("id").eq("creator_id", creatorId);
+    const contentIds = (contents || []).map((c) => c.id);
+    let earnings = 0;
+    if (contentIds.length > 0) {
+      const { data: purchases } = await supabaseAdmin.from("purchases").select("creator_net_amount_fcfa").eq("status", "completed").in("content_id", contentIds);
+      earnings = (purchases || []).reduce((sum, p) => sum + (p.creator_net_amount_fcfa || 0), 0);
+    }
+    const { data: withdrawals } = await supabaseAdmin.from("withdrawals").select("amount_requested").eq("creator_id", creatorId).in("status", ["pending", "approved", "paid"]);
+    const withdrawn = (withdrawals || []).reduce((sum, w) => sum + (w.amount_requested || 0), 0);
+    return Math.max(0, earnings - withdrawn);
+  } else {
+    const purchases = serverDb.getPurchases();
+    const localContentCreatorMap = {
+      "1": "creator_1",
+      "2": "creator_1",
+      "3": "creator_1"
+    };
+    const earnings = purchases.filter((p) => p.status === "completed" && localContentCreatorMap[p.contentId] === creatorId).reduce((sum, p) => sum + (p.creatorNetAmount || 0), 0);
+    const withdrawals = serverDb.getWithdrawals();
+    const withdrawn = withdrawals.filter((w) => w.creator_id === creatorId && ["pending", "approved", "paid"].includes(w.status)).reduce((sum, w) => sum + (w.amount_requested || 0), 0);
+    return Math.max(0, earnings - withdrawn);
+  }
+};
+app.get("/api/admin/kpis", async (req, res) => {
+  try {
+    const startOfMonth = /* @__PURE__ */ new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+    const startOfMonthStr = startOfMonth.toISOString();
+    let activeCreatorsCount = 0;
+    let platformEarnings = 0;
+    let totalVolume = 0;
+    let pendingWithdrawalsCount = 0;
+    let usedFallback = false;
+    if (supabaseAdmin) {
+      try {
+        const { count: activeCreators, error: err1 } = await supabaseAdmin.from("creator_profiles").select("*", { count: "exact", head: true }).eq("status", "active");
+        if (err1) throw err1;
+        activeCreatorsCount = activeCreators || 0;
+        const { data: monthPurchases, error: err2 } = await supabaseAdmin.from("purchases").select("commission_amount_fcfa, amount_paid_fcfa").eq("status", "completed").gte("created_at", startOfMonthStr);
+        if (err2) throw err2;
+        if (monthPurchases) {
+          platformEarnings = monthPurchases.reduce((sum, p) => sum + (p.commission_amount_fcfa || 0), 0);
+          totalVolume = monthPurchases.reduce((sum, p) => sum + (p.amount_paid_fcfa || 0), 0);
+        }
+        const { count: pendingWithdrawals, error: err3 } = await supabaseAdmin.from("withdrawals").select("*", { count: "exact", head: true }).eq("status", "pending");
+        if (err3) throw err3;
+        pendingWithdrawalsCount = pendingWithdrawals || 0;
+      } catch (dbErr) {
+        console.warn("[Server] Supabase query failed for KPIs, falling back to mock data:", dbErr);
+        usedFallback = true;
+      }
+    }
+    if (!supabaseAdmin || usedFallback) {
+      const creators = serverDb.getCreators();
+      activeCreatorsCount = creators.filter((c) => c.status === "active").length;
+      const purchases = serverDb.getPurchases();
+      const monthPurchases = purchases.filter((p) => p.status === "completed" && p.createdAt >= startOfMonthStr);
+      platformEarnings = monthPurchases.reduce((sum, p) => sum + (p.commissionAmount || 0), 0);
+      totalVolume = monthPurchases.reduce((sum, p) => sum + (p.amountPaid || 0), 0);
+      const withdrawals = serverDb.getWithdrawals();
+      pendingWithdrawalsCount = withdrawals.filter((w) => w.status === "pending").length;
+    }
+    return res.json({
+      activeCreators: activeCreatorsCount,
+      platformEarnings,
+      totalVolume,
+      pendingWithdrawals: pendingWithdrawalsCount,
+      isDemoMode: !supabaseAdmin || usedFallback
+    });
+  } catch (err) {
+    console.error("[Server] Admin KPIs error:", err);
+    return res.status(500).json({ error: "Erreur lors du calcul des KPIs." });
+  }
+});
+app.get("/api/admin/chart", async (req, res) => {
+  try {
+    const last30Days = {};
+    for (let i = 29; i >= 0; i--) {
+      const d = /* @__PURE__ */ new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+      last30Days[dateStr] = 0;
+    }
+    const startDate = /* @__PURE__ */ new Date();
+    startDate.setDate(startDate.getDate() - 30);
+    const startDateStr = startDate.toISOString();
+    let usedFallback = false;
+    if (supabaseAdmin) {
+      try {
+        const { data: purchases, error: err1 } = await supabaseAdmin.from("purchases").select("commission_amount_fcfa, created_at").eq("status", "completed").gte("created_at", startDateStr);
+        if (err1) throw err1;
+        if (purchases) {
+          purchases.forEach((p) => {
+            const dateLabel = new Date(p.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+            if (last30Days[dateLabel] !== void 0) {
+              last30Days[dateLabel] += p.commission_amount_fcfa || 0;
+            }
+          });
+        }
+      } catch (dbErr) {
+        console.warn("[Server] Supabase query failed for chart, falling back to mock data:", dbErr);
+        usedFallback = true;
+      }
+    }
+    if (!supabaseAdmin || usedFallback) {
+      const purchases = serverDb.getPurchases();
+      purchases.filter((p) => p.status === "completed" && p.createdAt >= startDateStr).forEach((p) => {
+        const dateLabel = new Date(p.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+        if (last30Days[dateLabel] !== void 0) {
+          last30Days[dateLabel] += p.commissionAmount || 0;
+        }
+      });
+    }
+    const chartData = Object.keys(last30Days).map((key) => ({
+      date: key,
+      revenu: last30Days[key]
+    }));
+    return res.json(chartData);
+  } catch (err) {
+    console.error("[Server] Admin chart error:", err);
+    return res.status(500).json({ error: "Erreur lors de la g\xE9n\xE9ration du graphique." });
+  }
+});
+app.get("/api/admin/creators", async (req, res) => {
+  try {
+    const search = (req.query.search || "").toLowerCase().trim();
+    let resultCreators = [];
+    let usedFallback = false;
+    if (supabaseAdmin) {
+      try {
+        const { data: creators, error } = await supabaseAdmin.from("creator_profiles").select("*").order("created_at", { ascending: false });
+        if (error) throw error;
+        resultCreators = creators || [];
+      } catch (dbErr) {
+        console.warn("[Server] Supabase query failed for creators, falling back to mock data:", dbErr);
+        usedFallback = true;
+      }
+    }
+    if (!supabaseAdmin || usedFallback) {
+      resultCreators = [...serverDb.getCreators()].sort((a, b) => b.created_at.localeCompare(a.created_at));
+    }
+    const creatorStatsList = await Promise.all(resultCreators.map(async (creator) => {
+      let activeSubStatus = "none";
+      let subscriptionExpiry = null;
+      if (supabaseAdmin && !usedFallback) {
+        try {
+          const { data: subs } = await supabaseAdmin.from("subscriptions").select("end_date, status").eq("creator_id", creator.id).order("end_date", { ascending: false });
+          const latestSub = subs && subs[0];
+          if (latestSub) {
+            const now = /* @__PURE__ */ new Date();
+            const endDate = new Date(latestSub.end_date);
+            const graceLimit = now.getTime() - 3 * 24 * 60 * 60 * 1e3;
+            if (latestSub.status === "active" && endDate.getTime() > now.getTime()) {
+              activeSubStatus = "active";
+            } else if (latestSub.status === "active" && endDate.getTime() > graceLimit) {
+              activeSubStatus = "grace";
+            } else {
+              activeSubStatus = "expired";
+            }
+            subscriptionExpiry = latestSub.end_date;
+          }
+          if (creator.is_premium && activeSubStatus !== "active") {
+            activeSubStatus = "active";
+            subscriptionExpiry = creator.premium_expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3).toISOString();
+          }
+        } catch (subErr) {
+          console.warn("[Server] Subscriptions query failed for creator", creator.id, subErr);
+        }
+      } else {
+        const subs = serverDb.getCreatorSubscriptions(creator.id);
+        const latestSub = subs.sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
+        if (latestSub) {
+          const now = /* @__PURE__ */ new Date();
+          const endDate = new Date(latestSub.endDate);
+          const graceLimit = now.getTime() - 3 * 24 * 60 * 60 * 1e3;
+          if (latestSub.status === "active" && endDate.getTime() > now.getTime()) {
+            activeSubStatus = "active";
+          } else if (latestSub.status === "active" && endDate.getTime() > graceLimit) {
+            activeSubStatus = "grace";
+          } else {
+            activeSubStatus = "expired";
+          }
+          subscriptionExpiry = latestSub.endDate;
+        }
+        if (creator.is_premium && activeSubStatus !== "active") {
+          activeSubStatus = "active";
+          subscriptionExpiry = creator.premium_expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3).toISOString();
+        }
+      }
+      let contentCount = 0;
+      if (supabaseAdmin && !usedFallback) {
+        try {
+          const { count } = await supabaseAdmin.from("contents").select("*", { count: "exact", head: true }).eq("creator_id", creator.id);
+          contentCount = count || 0;
+        } catch (cntErr) {
+          console.warn("[Server] Contents query failed for creator", creator.id, cntErr);
+        }
+      } else {
+        contentCount = creator.id === "creator_1" ? 3 : 1;
+      }
+      let revenueGenerated = 0;
+      if (supabaseAdmin && !usedFallback) {
+        try {
+          const { data: contents } = await supabaseAdmin.from("contents").select("id").eq("creator_id", creator.id);
+          const contentIds = (contents || []).map((c) => c.id);
+          if (contentIds.length > 0) {
+            const { data: purchases } = await supabaseAdmin.from("purchases").select("creator_net_amount_fcfa").eq("status", "completed").in("content_id", contentIds);
+            revenueGenerated = (purchases || []).reduce((sum, p) => sum + (p.creator_net_amount_fcfa || 0), 0);
+          }
+        } catch (revErr) {
+          console.warn("[Server] Revenue query failed for creator", creator.id, revErr);
+        }
+      } else {
+        const purchases = serverDb.getPurchases();
+        const localContentCreatorMap = {
+          "1": "creator_1",
+          "2": "creator_1",
+          "3": "creator_1"
+        };
+        revenueGenerated = purchases.filter((p) => p.status === "completed" && localContentCreatorMap[p.contentId] === creator.id).reduce((sum, p) => sum + (p.creatorNetAmount || 0), 0);
+      }
+      let creatorEmail = "";
+      if (supabaseAdmin && !usedFallback) {
+        try {
+          const { data: userData } = await supabaseAdmin.auth.admin.getUserById(creator.user_id);
+          creatorEmail = userData?.user?.email || "createur@momo.link";
+        } catch (usrErr) {
+          console.warn("[Server] Get user email failed for user_id", creator.user_id, usrErr);
+          creatorEmail = `${creator.username || "creator"}@momo.link`;
+        }
+      } else {
+        creatorEmail = `${creator.username}@momo.link`;
+      }
+      return {
+        ...creator,
+        email: creatorEmail,
+        contentCount,
+        revenueGenerated,
+        subscriptionStatus: activeSubStatus,
+        subscriptionExpiry
+      };
+    }));
+    const filtered = creatorStatsList.filter((c) => {
+      if (!search) return true;
+      return (c.username || "").toLowerCase().includes(search) || (c.display_name || "").toLowerCase().includes(search) || (c.email || "").toLowerCase().includes(search);
+    });
+    return res.json(filtered);
+  } catch (err) {
+    console.error("[Server] Admin creators error:", err);
+    return res.status(500).json({ error: "Erreur lors de la r\xE9cup\xE9ration de la liste." });
+  }
+});
+app.post("/api/admin/creators/:id/toggle-status", async (req, res) => {
+  const { id } = req.params;
+  try {
+    let currentCreator = null;
+    if (supabaseAdmin) {
+      const { data, error } = await supabaseAdmin.from("creator_profiles").select("*").eq("id", id).maybeSingle();
+      if (error) throw error;
+      currentCreator = data;
+    } else {
+      currentCreator = serverDb.getCreators().find((c) => c.id === id);
+    }
+    if (!currentCreator) {
+      return res.status(404).json({ error: "Cr\xE9ateur introuvable." });
+    }
+    const nextStatus = currentCreator.status === "active" ? "inactive" : "active";
+    if (supabaseAdmin) {
+      const { error } = await supabaseAdmin.from("creator_profiles").update({ status: nextStatus }).eq("id", id);
+      if (error) throw error;
+    } else {
+      serverDb.updateCreator(id, { status: nextStatus });
+    }
+    return res.json({ success: true, status: nextStatus });
+  } catch (err) {
+    console.error("[Server] Toggle creator status error:", err);
+    return res.status(500).json({ error: "Erreur lors du changement de statut." });
+  }
+});
+app.get("/api/admin/creators/:id/details", async (req, res) => {
+  const { id } = req.params;
+  try {
+    let creator = null;
+    if (supabaseAdmin) {
+      const { data, error } = await supabaseAdmin.from("creator_profiles").select("*").eq("id", id).maybeSingle();
+      if (error) throw error;
+      creator = data;
+    } else {
+      creator = serverDb.getCreators().find((c) => c.id === id);
+    }
+    if (!creator) {
+      return res.status(404).json({ error: "Cr\xE9ateur introuvable." });
+    }
+    let recentPurchases = [];
+    if (supabaseAdmin) {
+      const { data: contents } = await supabaseAdmin.from("contents").select("id, title").eq("creator_id", id);
+      const contentIds = (contents || []).map((c) => c.id);
+      if (contentIds.length > 0) {
+        const { data: purchases } = await supabaseAdmin.from("purchases").select("*, contents(title)").in("content_id", contentIds).order("created_at", { ascending: false }).limit(5);
+        recentPurchases = (purchases || []).map((p) => ({
+          id: p.id,
+          createdAt: p.created_at,
+          buyerPhone: p.buyer_phone,
+          buyerEmail: "***" + (p.buyer_phone ? p.buyer_phone.slice(-4) : "") + "@momo.link",
+          // masked
+          amountPaid: p.amount_paid_fcfa,
+          commissionAmount: p.commission_amount_fcfa,
+          creatorNetAmount: p.creator_net_amount_fcfa,
+          status: p.status,
+          contentTitle: p.contents?.title || "Contenu exclusif"
+        }));
+      }
+    } else {
+      const purchases = serverDb.getPurchases();
+      recentPurchases = purchases.filter((p) => p.contentId === "1" || p.contentId === "2" || p.contentId === "3").sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5).map((p) => ({
+        id: p.id,
+        createdAt: p.createdAt,
+        buyerPhone: p.buyerPhone,
+        buyerEmail: p.buyerEmail.replace(/.*(?=@)/, "***"),
+        amountPaid: p.amountPaid,
+        status: p.status,
+        contentTitle: "Contenu exclusif de Michella"
+      }));
+    }
+    let withdrawals = [];
+    if (supabaseAdmin) {
+      const { data } = await supabaseAdmin.from("withdrawals").select("*").eq("creator_id", id).order("requested_at", { ascending: false });
+      withdrawals = data || [];
+    } else {
+      withdrawals = serverDb.getWithdrawals().filter((w) => w.creator_id === id);
+    }
+    let subscriptions = [];
+    if (supabaseAdmin) {
+      const { data } = await supabaseAdmin.from("subscriptions").select("*").eq("creator_id", id).order("created_at", { ascending: false });
+      subscriptions = data || [];
+    } else {
+      subscriptions = serverDb.getCreatorSubscriptions(id);
+    }
+    const balance = await getCreatorBalance(id);
+    if (creator.is_premium && subscriptions.length === 0) {
+      subscriptions = [{
+        id: "sub_profile_premium",
+        creator_id: id,
+        amount_paid: 5e3,
+        currency: "XOF",
+        start_date: creator.created_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3).toISOString(),
+        end_date: creator.premium_expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3).toISOString(),
+        status: "active",
+        created_at: creator.created_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3).toISOString()
+      }];
+    }
+    return res.json({
+      creator,
+      balance,
+      recentPurchases,
+      withdrawals,
+      subscriptions
+    });
+  } catch (err) {
+    console.error("[Server] Creator details error:", err);
+    return res.status(500).json({ error: "Erreur lors de la r\xE9cup\xE9ration des d\xE9tails." });
+  }
+});
+app.get("/api/admin/withdrawals", async (req, res) => {
+  try {
+    let pendingList = [];
+    let historyList = [];
+    if (supabaseAdmin) {
+      const { data: pending, error: ep } = await supabaseAdmin.from("withdrawals").select("*, creator_profiles(*)").eq("status", "pending").order("requested_at", { ascending: true });
+      const { data: history, error: eh } = await supabaseAdmin.from("withdrawals").select("*, creator_profiles(*)").in("status", ["approved", "paid", "rejected"]).order("requested_at", { ascending: false });
+      if (ep) throw ep;
+      if (eh) throw eh;
+      pendingList = pending || [];
+      historyList = history || [];
+    } else {
+      const creatorsMap = Object.fromEntries(serverDb.getCreators().map((c) => [c.id, c]));
+      const withdrawals = serverDb.getWithdrawals();
+      pendingList = withdrawals.filter((w) => w.status === "pending").map((w) => ({ ...w, creator_profiles: creatorsMap[w.creator_id] })).sort((a, b) => a.requested_at.localeCompare(b.requested_at));
+      historyList = withdrawals.filter((w) => ["approved", "paid", "rejected"].includes(w.status)).map((w) => ({ ...w, creator_profiles: creatorsMap[w.creator_id] })).sort((a, b) => b.requested_at.localeCompare(a.requested_at));
+    }
+    const pendingWithBalances = await Promise.all(pendingList.map(async (w) => {
+      const balance = await getCreatorBalance(w.creator_id);
+      return {
+        ...w,
+        available_balance: balance
+      };
+    }));
+    return res.json({
+      pending: pendingWithBalances,
+      history: historyList
+    });
+  } catch (err) {
+    console.error("[Server] Admin withdrawals fetch error:", err);
+    return res.status(500).json({ error: "Erreur lors de la r\xE9cup\xE9ration des retraits." });
+  }
+});
+app.post("/api/admin/withdrawals/:id/pay", async (req, res) => {
+  const { id } = req.params;
+  try {
+    let withdrawal = null;
+    if (supabaseAdmin) {
+      const { data, error } = await supabaseAdmin.from("withdrawals").select("*, creator_profiles(*)").eq("id", id).maybeSingle();
+      if (error) throw error;
+      withdrawal = data;
+    } else {
+      const creatorsMap = Object.fromEntries(serverDb.getCreators().map((c) => [c.id, c]));
+      const rawW = serverDb.getWithdrawals().find((w) => w.id === id);
+      if (rawW) {
+        withdrawal = { ...rawW, creator_profiles: creatorsMap[rawW.creator_id] };
+      }
+    }
+    if (!withdrawal) {
+      return res.status(404).json({ error: "Demande de retrait introuvable." });
+    }
+    const nowStr = (/* @__PURE__ */ new Date()).toISOString();
+    if (supabaseAdmin) {
+      const { error } = await supabaseAdmin.from("withdrawals").update({ status: "paid", processed_at: nowStr }).eq("id", id);
+      if (error) throw error;
+      if (withdrawal.creator_profiles?.user_id) {
+        await supabaseAdmin.from("notifications").insert({
+          user_id: withdrawal.creator_profiles.user_id,
+          title: "Retrait trait\xE9 avec succ\xE8s",
+          message: `Votre demande de retrait de ${withdrawal.amount_requested.toLocaleString()} FCFA via ${withdrawal.payout_provider} (${withdrawal.payout_phone_number}) a \xE9t\xE9 valid\xE9e et envoy\xE9e.`,
+          is_read: false
+        });
+      }
+    } else {
+      serverDb.updateWithdrawal(id, { status: "paid", processed_at: nowStr });
+      serverDb.addNotification({
+        userId: withdrawal.creator_profiles?.user_id || "user_1",
+        type: "system",
+        title: "Retrait trait\xE9 avec succ\xE8s",
+        message: `Votre demande de retrait de ${withdrawal.amount_requested.toLocaleString()} FCFA via ${withdrawal.payout_provider} (${withdrawal.payout_phone_number}) a \xE9t\xE9 valid\xE9e et envoy\xE9e.`
+      });
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[Server] Pay withdrawal error:", err);
+    return res.status(500).json({ error: "Erreur lors de la validation du paiement." });
+  }
+});
+app.post("/api/admin/withdrawals/:id/reject", async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: "La raison du rejet est obligatoire." });
+  }
+  try {
+    let withdrawal = null;
+    if (supabaseAdmin) {
+      const { data, error } = await supabaseAdmin.from("withdrawals").select("*, creator_profiles(*)").eq("id", id).maybeSingle();
+      if (error) throw error;
+      withdrawal = data;
+    } else {
+      const creatorsMap = Object.fromEntries(serverDb.getCreators().map((c) => [c.id, c]));
+      const rawW = serverDb.getWithdrawals().find((w) => w.id === id);
+      if (rawW) {
+        withdrawal = { ...rawW, creator_profiles: creatorsMap[rawW.creator_id] };
+      }
+    }
+    if (!withdrawal) {
+      return res.status(404).json({ error: "Demande de retrait introuvable." });
+    }
+    const nowStr = (/* @__PURE__ */ new Date()).toISOString();
+    if (supabaseAdmin) {
+      const { error } = await supabaseAdmin.from("withdrawals").update({ status: "rejected", processed_at: nowStr, notes: reason.trim() }).eq("id", id);
+      if (error) throw error;
+      if (withdrawal.creator_profiles?.user_id) {
+        await supabaseAdmin.from("notifications").insert({
+          user_id: withdrawal.creator_profiles.user_id,
+          title: "Retrait rejet\xE9",
+          message: `Votre demande de retrait de ${withdrawal.amount_requested.toLocaleString()} FCFA a \xE9t\xE9 rejet\xE9e. Motif : ${reason.trim()}`,
+          is_read: false
+        });
+      }
+    } else {
+      serverDb.updateWithdrawal(id, { status: "rejected", processed_at: nowStr, notes: reason.trim() });
+      serverDb.addNotification({
+        userId: withdrawal.creator_profiles?.user_id || "user_1",
+        type: "system",
+        title: "Retrait rejet\xE9",
+        message: `Votre demande de retrait de ${withdrawal.amount_requested.toLocaleString()} FCFA a \xE9t\xE9 rejet\xE9e. Motif : ${reason.trim()}`
+      });
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[Server] Reject withdrawal error:", err);
+    return res.status(500).json({ error: "Erreur lors du rejet du retrait." });
+  }
+});
+app.get("/api/admin/subscriptions", async (req, res) => {
+  try {
+    const filter = req.query.filter || "all";
+    let creators = [];
+    if (supabaseAdmin) {
+      const { data, error } = await supabaseAdmin.from("creator_profiles").select("*");
+      if (error) throw error;
+      creators = data || [];
+    } else {
+      creators = serverDb.getCreators();
+    }
+    const fullSubsList = await Promise.all(creators.map(async (creator) => {
+      let subStatus = "none";
+      let expiryDateStr = null;
+      let amountPaid = 0;
+      let daysRemaining = 0;
+      if (supabaseAdmin) {
+        const { data: subs } = await supabaseAdmin.from("subscriptions").select("*").eq("creator_id", creator.id).order("end_date", { ascending: false });
+        const latestSub = subs && subs[0];
+        if (latestSub) {
+          const now = /* @__PURE__ */ new Date();
+          const endDate = new Date(latestSub.end_date);
+          const graceLimit = now.getTime() - 3 * 24 * 60 * 60 * 1e3;
+          if (latestSub.status === "active" && endDate.getTime() > now.getTime()) {
+            subStatus = "active";
+          } else if (latestSub.status === "active" && endDate.getTime() > graceLimit) {
+            subStatus = "grace";
+          } else {
+            subStatus = "expired";
+          }
+          expiryDateStr = latestSub.end_date;
+          daysRemaining = Math.ceil((endDate.getTime() - now.getTime()) / (1e3 * 60 * 60 * 24));
+        }
+        amountPaid = (subs || []).reduce((sum, s) => sum + (s.amount_paid || 0), 0);
+        if (creator.is_premium && subStatus !== "active") {
+          subStatus = "active";
+          expiryDateStr = creator.premium_expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3).toISOString();
+          const endDate = new Date(expiryDateStr);
+          daysRemaining = Math.ceil((endDate.getTime() - Date.now()) / (1e3 * 60 * 60 * 24));
+          if (amountPaid === 0) {
+            amountPaid = 5e3;
+          }
+        }
+      } else {
+        const subs = serverDb.getCreatorSubscriptions(creator.id);
+        const latestSub = subs.sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
+        if (latestSub) {
+          const now = /* @__PURE__ */ new Date();
+          const endDate = new Date(latestSub.endDate);
+          const graceLimit = now.getTime() - 3 * 24 * 60 * 60 * 1e3;
+          if (latestSub.status === "active" && endDate.getTime() > now.getTime()) {
+            subStatus = "active";
+          } else if (latestSub.status === "active" && endDate.getTime() > graceLimit) {
+            subStatus = "grace";
+          } else {
+            subStatus = "expired";
+          }
+          expiryDateStr = latestSub.endDate;
+          daysRemaining = Math.ceil((endDate.getTime() - now.getTime()) / (1e3 * 60 * 60 * 24));
+        }
+        if (creator.is_premium && subStatus !== "active") {
+          subStatus = "active";
+          expiryDateStr = creator.premium_expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3).toISOString();
+          const endDate = new Date(expiryDateStr);
+          daysRemaining = Math.ceil((endDate.getTime() - Date.now()) / (1e3 * 60 * 60 * 24));
+          if (amountPaid === 0) {
+            amountPaid = 5e3;
+          }
+        }
+        amountPaid = subs.reduce((sum, s) => sum + (s.amountPaid || 0), 0);
+      }
+      return {
+        id: creator.id,
+        display_name: creator.display_name,
+        username: creator.username,
+        avatar_url: creator.avatar_url,
+        status: subStatus,
+        expiryDate: expiryDateStr,
+        daysRemaining,
+        amountPaid
+      };
+    }));
+    const filtered = fullSubsList.filter((s) => {
+      if (filter === "all") return true;
+      if (filter === "active") return s.status === "active";
+      if (filter === "grace") return s.status === "grace";
+      if (filter === "expired") return s.status === "expired";
+      if (filter === "expiring_soon") return s.status === "active" && s.daysRemaining <= 5 && s.daysRemaining >= 0;
+      return true;
+    });
+    return res.json(filtered);
+  } catch (err) {
+    console.error("[Server] Admin subscriptions list error:", err);
+    return res.status(500).json({ error: "Erreur lors de la r\xE9cup\xE9ration des abonnements." });
+  }
+});
+app.get("/api/admin/transactions", async (req, res) => {
+  try {
+    const search = (req.query.search || "").trim().toLowerCase();
+    const type = req.query.type || "all";
+    const status = req.query.status || "all";
+    let fullList = [];
+    if (supabaseAdmin) {
+      const { data: purchases } = await supabaseAdmin.from("purchases").select("*, contents(title, creator_profiles(display_name, username, avatar_url))").order("created_at", { ascending: false });
+      const purchaseTransactions = (purchases || []).map((p) => ({
+        id: p.id,
+        date: p.created_at,
+        type: "purchase",
+        creatorName: p.contents?.creator_profiles?.display_name || "Inconnu",
+        creatorUsername: p.contents?.creator_profiles?.username || "inconnu",
+        creatorAvatar: p.contents?.creator_profiles?.avatar_url || "",
+        buyerEmail: "***" + (p.buyer_phone ? p.buyer_phone.slice(-4) : "") + "@momo.link",
+        amount: p.amount_paid_fcfa,
+        commission: p.commission_amount_fcfa,
+        status: p.status,
+        // completed, pending, failed
+        providerTxId: p.payment_reference || ""
+      }));
+      const { data: subs } = await supabaseAdmin.from("subscriptions").select("*, creator_profiles(display_name, username, avatar_url), transactions(provider_transaction_id)").order("created_at", { ascending: false });
+      const subTransactions = (subs || []).map((s) => ({
+        id: s.id,
+        date: s.created_at,
+        type: "subscription",
+        creatorName: s.creator_profiles?.display_name || "Inconnu",
+        creatorUsername: s.creator_profiles?.username || "inconnu",
+        creatorAvatar: s.creator_profiles?.avatar_url || "",
+        buyerEmail: s.creator_profiles?.display_name || "Inconnu",
+        amount: s.amount_paid,
+        commission: 0,
+        status: s.status === "active" ? "completed" : "expired",
+        providerTxId: s.transactions?.provider_transaction_id || ""
+      }));
+      fullList = [...purchaseTransactions, ...subTransactions].sort((a, b) => b.date.localeCompare(a.date));
+    } else {
+      const creatorsMap = Object.fromEntries(serverDb.getCreators().map((c) => [c.id, c]));
+      const purchases = serverDb.getPurchases().map((p) => {
+        const creatorId = "creator_1";
+        const creator = creatorsMap[creatorId];
+        return {
+          id: p.id,
+          date: p.createdAt,
+          type: "purchase",
+          creatorName: creator?.display_name || "Michella Coaching",
+          creatorUsername: creator?.username || "michella_coaching",
+          creatorAvatar: creator?.avatar_url || "",
+          buyerEmail: p.buyerEmail.replace(/.*(?=@)/, "***"),
+          amount: p.amountPaid,
+          commission: p.commissionAmount,
+          status: p.status,
+          providerTxId: p.paymentReference
+        };
+      });
+      const subs = serverDb.getSubscriptions().map((s) => {
+        const creator = creatorsMap[s.creatorId];
+        return {
+          id: s.id,
+          date: s.createdAt,
+          type: "subscription",
+          creatorName: creator?.display_name || "Inconnu",
+          creatorUsername: creator?.username || "inconnu",
+          creatorAvatar: creator?.avatar_url || "",
+          buyerEmail: creator?.display_name || "Inconnu",
+          amount: s.amountPaid,
+          commission: 0,
+          status: s.status === "active" ? "completed" : "expired",
+          providerTxId: s.transactionId || ""
+        };
+      });
+      fullList = [...purchases, ...subs].sort((a, b) => b.date.localeCompare(a.date));
+    }
+    const filtered = fullList.filter((t) => {
+      const matchesSearch = !search || (t.providerTxId || "").toLowerCase().includes(search) || (t.creatorUsername || "").toLowerCase().includes(search) || (t.creatorName || "").toLowerCase().includes(search);
+      const matchesType = type === "all" || t.type === type;
+      let matchesStatus = true;
+      if (status !== "all") {
+        matchesStatus = t.status === status;
+      }
+      return matchesSearch && matchesType && matchesStatus;
+    });
+    return res.json(filtered);
+  } catch (err) {
+    console.error("[Server] Admin transactions error:", err);
+    return res.status(500).json({ error: "Erreur lors de la r\xE9cup\xE9ration de l'historique." });
+  }
+});
+app.get("/api/admin/recent-purchases", async (req, res) => {
+  try {
+    let recentPurchases = [];
+    let usedFallback = false;
+    if (supabaseAdmin) {
+      try {
+        const { data: purchases, error: err1 } = await supabaseAdmin.from("purchases").select("*, contents(title, creator_profiles(display_name, username))").order("created_at", { ascending: false }).limit(5);
+        if (err1) throw err1;
+        recentPurchases = (purchases || []).map((p) => ({
+          id: p.id,
+          createdAt: p.created_at,
+          creatorName: p.contents?.creator_profiles?.display_name || "Inconnu",
+          contentTitle: p.contents?.title || "Contenu exclusif",
+          buyerEmail: "***" + (p.buyer_phone ? p.buyer_phone.slice(-4) : "") + "@momo.link",
+          amountPaid: p.amount_paid_fcfa,
+          commissionAmount: p.commission_amount_fcfa,
+          status: p.status
+        }));
+      } catch (dbErr) {
+        console.warn("[Server] Supabase query failed for recent purchases, falling back to mock data:", dbErr);
+        usedFallback = true;
+      }
+    }
+    if (!supabaseAdmin || usedFallback) {
+      const creatorsMap = Object.fromEntries(serverDb.getCreators().map((c) => [c.id, c]));
+      const purchases = serverDb.getPurchases();
+      recentPurchases = purchases.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5).map((p) => {
+        const creator = creatorsMap["creator_1"];
+        return {
+          id: p.id,
+          createdAt: p.createdAt,
+          creatorName: creator?.display_name || "Michella Coaching",
+          contentTitle: "Pack PDF : Booster son audience TikTok",
+          buyerEmail: p.buyerEmail.replace(/.*(?=@)/, "***"),
+          amountPaid: p.amountPaid,
+          commissionAmount: p.commissionAmount,
+          status: p.status
+        };
+      });
+    }
+    return res.json(recentPurchases);
+  } catch (err) {
+    console.error("[Server] Admin recent purchases error:", err);
+    return res.status(500).json({ error: "Erreur lors du chargement des transactions r\xE9centes." });
+  }
+});
+async function startServer() {
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[Server] Starting development server with Vite middleware...");
+    const { createServer: createViteServer } = await import("vite");
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa"
+    });
+    app.use(vite.middlewares);
+  } else {
+    console.log("[Server] Starting production server...");
+    const distPath = path2.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
+    app.get("*", (req, res) => {
+      res.sendFile(path2.join(distPath, "index.html"));
+    });
+  }
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`[Server] Full-stack application ready at http://localhost:${PORT}`);
+  });
+}
+if (!process.env.VERCEL) {
+  startServer();
+}
+var server_default = app;
+export {
+  server_default as default
+};
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+//# sourceMappingURL=index.js.map

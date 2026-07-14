@@ -1,0 +1,6 @@
+{
+  "name": "Momo Creator",
+  "description": "Plateforme SaaS permettant aux créateurs de vendre du contenu exclusif à leur communauté via Mobile Money en Afrique francophone.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
