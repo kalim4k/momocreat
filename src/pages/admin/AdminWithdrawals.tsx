@@ -7,7 +7,9 @@ import {
   AlertTriangle,
   FileText,
   User,
-  Info
+  Info,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -47,6 +49,97 @@ export default function AdminWithdrawals() {
   const [rejectingWithdrawalId, setRejectingWithdrawalId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isSubmittingAction, setIsSubmittingAction] = useState<string | null>(null);
+
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  const toggleGroupCollapsed = (groupId: string) => {
+    setCollapsedGroups(prev => ({
+      ...prev,
+      [groupId]: !prev[groupId]
+    }));
+  };
+
+  // Group pending withdrawals by user_id or phone number
+  const groupedPendingWithdrawals = React.useMemo(() => {
+    const groups: Record<string, {
+      userId: string;
+      email: string;
+      displayName: string;
+      avatarUrl: string;
+      payoutProvider: string;
+      payoutPhoneNumber: string;
+      requests: Withdrawal[];
+      totalRequested: number;
+      totalAvailableBalance: number;
+    }> = {};
+
+    pendingWithdrawals.forEach(w => {
+      const key = w.creator_profiles?.user_id || w.payout_phone_number;
+      if (!groups[key]) {
+        groups[key] = {
+          userId: w.creator_profiles?.user_id || '',
+          email: w.creator_profiles?.username ? `${w.creator_profiles.username}@momo.link` : 'createur@momo.link',
+          displayName: w.creator_profiles?.display_name || 'Sans Nom',
+          avatarUrl: w.creator_profiles?.avatar_url || '',
+          payoutProvider: w.payout_provider,
+          payoutPhoneNumber: w.payout_phone_number,
+          requests: [],
+          totalRequested: 0,
+          totalAvailableBalance: 0
+        };
+      }
+      groups[key].requests.push(w);
+      groups[key].totalRequested += w.amount_requested;
+    });
+
+    // Calculate real unique balances
+    Object.values(groups).forEach(g => {
+      const seenCreatorIds = new Set<string>();
+      g.requests.forEach(w => {
+        if (!seenCreatorIds.has(w.creator_id)) {
+          seenCreatorIds.add(w.creator_id);
+          g.totalAvailableBalance += w.available_balance ?? 0;
+        }
+      });
+    });
+
+    return Object.values(groups).sort((a, b) => b.totalRequested - a.totalRequested);
+  }, [pendingWithdrawals]);
+
+  const handlePayConsolidatedWithdrawal = async (group: typeof groupedPendingWithdrawals[0]) => {
+    const isOverdrawing = group.totalAvailableBalance < group.totalRequested;
+    if (isOverdrawing) {
+      const confirmPay = window.confirm(`ATTENTION: Le solde disponible consolidé (${group.totalAvailableBalance.toLocaleString()} FCFA) est inférieur au montant total demandé (${group.totalRequested.toLocaleString()} FCFA). Voulez-vous quand même forcer le paiement consolidé ?`);
+      if (!confirmPay) return;
+    } else {
+      const confirmPay = window.confirm(`Voulez-vous marquer les ${group.requests.length} demandes de retrait d'un montant total de ${group.totalRequested.toLocaleString()} FCFA comme payées ?`);
+      if (!confirmPay) return;
+    }
+
+    try {
+      setIsSubmittingAction(`group-${group.userId}`);
+      const headers = await getHeaders();
+      
+      const payPromises = group.requests.map(w => 
+        fetch(`/api/admin/withdrawals/${w.id}/pay`, {
+          method: 'POST',
+          headers
+        }).then(res => {
+          if (!res.ok) throw new Error(`Erreur lors du paiement de la demande de ${w.amount_requested} FCFA`);
+          return res.json();
+        })
+      );
+
+      await Promise.all(payPromises);
+      await fetchWithdrawals(); // Refresh
+      alert('Paiement consolidé validé avec succès !');
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'Une erreur est survenue lors du traitement du paiement consolidé.');
+    } finally {
+      setIsSubmittingAction(null);
+    }
+  };
 
   useEffect(() => {
     fetchWithdrawals();
@@ -225,87 +318,155 @@ export default function AdminWithdrawals() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border-custom">
-                    {pendingWithdrawals.map((w) => {
-                      const balance = w.available_balance ?? 0;
-                      const isOverdrawing = balance < w.amount_requested;
+                    {groupedPendingWithdrawals.map((group) => {
+                      const isCollapsed = !!collapsedGroups[group.userId || group.payoutPhoneNumber];
+                      const isGroupOverdrawing = group.totalAvailableBalance < group.totalRequested;
+                      const groupId = group.userId || group.payoutPhoneNumber;
 
                       return (
-                        <tr key={w.id} className="hover:bg-bg-surface-hover/20 transition-colors">
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-full bg-accent-corail/10 flex items-center justify-center font-bold text-accent-corail text-xs overflow-hidden">
-                                {w.creator_profiles?.avatar_url ? (
-                                  <img 
-                                    src={w.creator_profiles.avatar_url} 
-                                    alt={w.creator_profiles.username} 
-                                    className="w-full h-full object-cover"
-                                    referrerPolicy="no-referrer"
-                                  />
-                                ) : (
-                                  w.creator_profiles?.display_name ? w.creator_profiles.display_name[0].toUpperCase() : 'C'
+                        <React.Fragment key={groupId}>
+                          {/* Owner/Consolidated Row */}
+                          <tr className="bg-bg-primary/40 font-medium border-b border-border-custom/60">
+                            <td className="px-5 py-3">
+                              <button
+                                onClick={() => toggleGroupCollapsed(groupId)}
+                                className="flex items-center gap-2 text-text-primary hover:text-accent-corail transition-colors font-semibold cursor-pointer"
+                              >
+                                {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                                <span>{group.displayName}</span>
+                                <span className="ml-1 text-[10px] bg-accent-corail/10 text-accent-corail border border-accent-corail/20 px-1.5 py-0.5 rounded-full font-normal">
+                                  {group.requests.length} {group.requests.length > 1 ? 'retraits en attente' : 'retrait en attente'}
+                                </span>
+                              </button>
+                            </td>
+                            <td className="px-5 py-3 font-bold text-accent-corail text-sm font-mono">
+                              {group.totalRequested.toLocaleString()} FCFA
+                            </td>
+                            <td className="px-5 py-3">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getPayoutProviderColor(group.payoutProvider)}`}>
+                                  {group.payoutProvider}
+                                </span>
+                                <span className="text-xs font-mono text-text-primary">{group.payoutPhoneNumber}</span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">
+                              <div className="flex items-center gap-2">
+                                <span className={`font-mono text-sm font-bold ${isGroupOverdrawing ? 'text-red-600' : 'text-emerald-600'}`}>
+                                  {group.totalAvailableBalance.toLocaleString()} FCFA
+                                </span>
+                                {isGroupOverdrawing && (
+                                  <span className="flex items-center gap-1 bg-[#FFEBEE] text-[#C62828] border border-[#FFCDD2] text-[9px] px-1.5 py-0.5 rounded" title="Le solde consolidé est insuffisant">
+                                    <AlertTriangle size={10} /> Insuffisant
+                                  </span>
                                 )}
                               </div>
-                              <div>
-                                <p className="font-semibold text-text-primary leading-tight">{w.creator_profiles?.display_name || 'Sans Nom'}</p>
-                                <p className="text-xs text-text-secondary">@{w.creator_profiles?.username}</p>
+                            </td>
+                            <td className="px-5 py-3 text-xs text-text-secondary">
+                              Regroupement Mobile Money
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                {/* Consolidated Pay Button */}
+                                <button
+                                  onClick={() => handlePayConsolidatedWithdrawal(group)}
+                                  disabled={isSubmittingAction !== null}
+                                  className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/50 text-white font-semibold text-xs px-3 py-1.5 rounded-lg transition-all cursor-pointer inline-flex items-center gap-1"
+                                >
+                                  {isSubmittingAction === `group-${group.userId}` ? (
+                                    <Loader2 size={13} className="animate-spin" />
+                                  ) : (
+                                    <Check size={13} />
+                                  )}
+                                  <span>Payer Tout</span>
+                                </button>
                               </div>
-                            </div>
-                          </td>
-                          <td className="px-5 py-4 font-bold text-text-primary text-sm font-mono">
-                            {w.amount_requested.toLocaleString()} FCFA
-                          </td>
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-2">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getPayoutProviderColor(w.payout_provider)}`}>
-                                {w.payout_provider}
-                              </span>
-                              <span className="text-xs font-mono text-text-primary">{w.payout_phone_number}</span>
-                            </div>
-                          </td>
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-2">
-                              <span className={`font-mono text-sm font-bold ${isOverdrawing ? 'text-red-600' : 'text-emerald-600'}`}>
-                                {balance.toLocaleString()} FCFA
-                              </span>
-                              {isOverdrawing && (
-                                <span className="flex items-center gap-1 bg-[#FFEBEE] text-[#C62828] border border-[#FFCDD2] text-[9px] px-1.5 py-0.5 rounded" title="Le créateur tente de retirer plus que son solde">
-                                  <AlertTriangle size={10} /> Insuffisant
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-5 py-4 text-xs text-text-secondary font-mono">
-                            {new Date(w.requested_at).toLocaleDateString('fr-FR', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </td>
-                          <td className="px-5 py-4 text-right space-x-2">
-                            {/* Mark paid */}
-                            <button
-                              onClick={() => handlePayWithdrawal(w.id, w.amount_requested, balance)}
-                              disabled={isSubmittingAction !== null}
-                              className="bg-[#E8F5E9] text-[#2E7D32] hover:bg-[#C8E6C9] border border-[#A5D6A7] font-medium text-xs px-3 py-1.5 rounded-lg transition-all"
-                              id={`btn-pay-${w.id}`}
-                            >
-                              {isSubmittingAction === w.id ? <Loader2 size={13} className="animate-spin inline mr-1" /> : <Check size={13} className="inline mr-1" />}
-                              Marquer comme payé
-                            </button>
+                            </td>
+                          </tr>
 
-                            {/* Reject */}
-                            <button
-                              onClick={() => handleOpenRejectDialog(w.id)}
-                              disabled={isSubmittingAction !== null}
-                              className="bg-[#FFEBEE] text-[#C62828] hover:bg-[#FFCDD2] border border-[#EF9A9A] font-medium text-xs px-3 py-1.5 rounded-lg transition-all"
-                              id={`btn-reject-${w.id}`}
-                            >
-                              <X size={13} className="inline mr-1" />
-                              Rejeter
-                            </button>
-                          </td>
-                        </tr>
+                          {/* Nested requests rows */}
+                          {!isCollapsed && group.requests.map((w) => {
+                            const balance = w.available_balance ?? 0;
+                            const isOverdrawing = balance < w.amount_requested;
+
+                            return (
+                              <tr key={w.id} className="bg-bg-surface hover:bg-bg-surface-hover/20 transition-colors">
+                                <td className="px-5 py-3.5 pl-10 border-l-2 border-accent-corail/30">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-accent-corail/10 flex items-center justify-center font-bold text-accent-corail text-xs overflow-hidden">
+                                      {w.creator_profiles?.avatar_url ? (
+                                        <img 
+                                          src={w.creator_profiles.avatar_url} 
+                                          alt={w.creator_profiles.username} 
+                                          className="w-full h-full object-cover"
+                                          referrerPolicy="no-referrer"
+                                        />
+                                      ) : (
+                                        w.creator_profiles?.display_name ? w.creator_profiles.display_name[0].toUpperCase() : 'C'
+                                      )}
+                                    </div>
+                                    <div>
+                                      <p className="font-semibold text-text-primary text-xs leading-tight">
+                                        Boutique : {w.creator_profiles?.display_name || 'Sans Nom'}
+                                      </p>
+                                      <p className="text-[10px] text-text-secondary">@{w.creator_profiles?.username}</p>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-5 py-3.5 font-bold text-text-primary text-xs font-mono">
+                                  {w.amount_requested.toLocaleString()} FCFA
+                                </td>
+                                <td className="px-5 py-3.5 text-xs text-text-secondary">
+                                  Sous-boutique
+                                </td>
+                                <td className="px-5 py-3.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`font-mono text-xs font-bold ${isOverdrawing ? 'text-red-600' : 'text-emerald-600'}`}>
+                                      {balance.toLocaleString()} FCFA
+                                    </span>
+                                    {isOverdrawing && (
+                                      <span className="flex items-center gap-1 bg-[#FFEBEE] text-[#C62828] border border-[#FFCDD2] text-[8px] px-1 py-0.5 rounded">
+                                        Insuffisant
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-5 py-3.5 text-[10px] text-text-secondary font-mono">
+                                  {new Date(w.requested_at).toLocaleDateString('fr-FR', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })}
+                                </td>
+                                <td className="px-5 py-3.5">
+                                  <div className="flex items-center justify-end gap-2">
+                                    {/* Mark paid (Individual) */}
+                                    <button
+                                      onClick={() => handlePayWithdrawal(w.id, w.amount_requested, balance)}
+                                      disabled={isSubmittingAction !== null}
+                                      className="bg-[#E8F5E9] text-[#2E7D32] hover:bg-[#C8E6C9] border border-[#A5D6A7] font-medium text-[11px] px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center justify-center gap-1"
+                                      id={`btn-pay-${w.id}`}
+                                    >
+                                      {isSubmittingAction === w.id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                                      <span>Payer</span>
+                                    </button>
+
+                                    {/* Reject (Individual) */}
+                                    <button
+                                      onClick={() => handleOpenRejectDialog(w.id)}
+                                      disabled={isSubmittingAction !== null}
+                                      className="bg-[#FFEBEE] text-[#C62828] hover:bg-[#FFCDD2] border border-[#EF9A9A] font-medium text-[11px] px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center justify-center"
+                                      id={`btn-reject-${w.id}`}
+                                    >
+                                      Rejeter
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
                       );
                     })}
                   </tbody>

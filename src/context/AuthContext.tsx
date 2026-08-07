@@ -10,6 +10,7 @@ import { CreatorProfile, SocialLinks } from '../types';
 interface AuthContextType {
   user: any | null;
   profile: CreatorProfile | null;
+  allProfiles: CreatorProfile[];
   loading: boolean;
   isDemoMode: boolean;
   error: string | null;
@@ -21,6 +22,8 @@ interface AuthContextType {
   checkUsernameUnique: (username: string) => Promise<boolean>;
   setDemoMode: (val: boolean) => void;
   refreshStats: () => Promise<any>;
+  switchProfile: (profileId: string) => Promise<void>;
+  createAdditionalProfile: (profileData: Omit<CreatorProfile, 'id' | 'created_at'>) => Promise<{ success: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -28,6 +31,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<any | null>(null);
   const [profile, setProfile] = useState<CreatorProfile | null>(null);
+  const [allProfiles, setAllProfiles] = useState<CreatorProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -48,15 +52,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (session?.user) {
             setUser(session.user);
-            // Fetch profile
-            const { data: profileData, error: profileErr } = await supabase
+            // Fetch all profiles
+            const { data: profilesList, error: profilesErr } = await supabase
               .from('creator_profiles')
               .select('*')
-              .eq('user_id', session.user.id)
-              .maybeSingle();
+              .eq('user_id', session.user.id);
 
-            if (!profileErr && profileData) {
-              setProfile(profileData as CreatorProfile);
+            if (!profilesErr && profilesList) {
+              setAllProfiles(profilesList as CreatorProfile[]);
+              if (profilesList.length > 0) {
+                const activeProfileId = localStorage.getItem('momo_active_profile_id');
+                const matched = profilesList.find(p => p.id === activeProfileId);
+                if (matched) {
+                  setProfile(matched as CreatorProfile);
+                } else {
+                  setProfile(profilesList[0] as CreatorProfile);
+                  localStorage.setItem('momo_active_profile_id', profilesList[0].id);
+                }
+              }
             }
           }
 
@@ -64,15 +77,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (session?.user) {
               setUser(session.user);
-              const { data: profileData } = await supabase
+              const { data: profilesList } = await supabase
                 .from('creator_profiles')
                 .select('*')
-                .eq('user_id', session.user.id)
-                .maybeSingle();
-              setProfile(profileData as CreatorProfile);
+                .eq('user_id', session.user.id);
+              
+              if (profilesList) {
+                setAllProfiles(profilesList as CreatorProfile[]);
+                if (profilesList.length > 0) {
+                  const activeProfileId = localStorage.getItem('momo_active_profile_id');
+                  const matched = profilesList.find(p => p.id === activeProfileId);
+                  if (matched) {
+                    setProfile(matched as CreatorProfile);
+                  } else {
+                    setProfile(profilesList[0] as CreatorProfile);
+                    localStorage.setItem('momo_active_profile_id', profilesList[0].id);
+                  }
+                } else {
+                  setProfile(null);
+                }
+              } else {
+                setAllProfiles([]);
+                setProfile(null);
+              }
             } else {
               setUser(null);
               setProfile(null);
+              setAllProfiles([]);
             }
           });
           
@@ -81,12 +112,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Demo Mode - Load from localStorage
           const cachedUser = localStorage.getItem('momo_creator_user');
           const cachedProfile = localStorage.getItem('momo_creator_profile');
+          const cachedAllProfiles = localStorage.getItem('momo_creator_profiles');
 
           if (cachedUser) {
             setUser(JSON.parse(cachedUser));
           }
+          let activeProf: CreatorProfile | null = null;
           if (cachedProfile) {
-            setProfile(JSON.parse(cachedProfile));
+            activeProf = JSON.parse(cachedProfile);
+            setProfile(activeProf);
+          }
+          if (cachedAllProfiles) {
+            setAllProfiles(JSON.parse(cachedAllProfiles));
+          } else if (activeProf) {
+            setAllProfiles([activeProf]);
+            localStorage.setItem('momo_creator_profiles', JSON.stringify([activeProf]));
           }
         }
       } catch (err: any) {
@@ -362,18 +402,81 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return null;
   };
 
+  const switchProfile = async (profileId: string) => {
+    const matched = allProfiles.find(p => p.id === profileId);
+    if (matched) {
+      setProfile(matched);
+      localStorage.setItem('momo_active_profile_id', profileId);
+      if (isDemoMode) {
+        localStorage.setItem('momo_creator_profile', JSON.stringify(matched));
+      }
+    }
+  };
+
+  const createAdditionalProfile = async (profileData: Omit<CreatorProfile, 'id' | 'created_at'>) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const generatedId = `cre_${Math.random().toString(36).substr(2, 9)}`;
+      const newProfile: CreatorProfile = {
+        ...profileData,
+        id: generatedId,
+        created_at: new Date().toISOString(),
+      };
+
+      if (!isDemoMode && supabase) {
+        const { error: err } = await supabase
+          .from('creator_profiles')
+          .insert({
+            user_id: profileData.user_id,
+            username: profileData.username.toLowerCase(),
+            display_name: profileData.display_name,
+            bio: profileData.bio,
+            social_links: profileData.social_links,
+            payout_phone_number: profileData.payout_phone_number,
+            payout_provider: profileData.payout_provider,
+            cover_url: profileData.cover_url || null,
+            status: 'active'
+          });
+
+        if (err) throw err;
+        setAllProfiles(prev => [...prev, newProfile]);
+        setProfile(newProfile);
+        localStorage.setItem('momo_active_profile_id', generatedId);
+        return { success: true };
+      } else {
+        // Mock Additional Profile Create
+        const updatedProfiles = [...allProfiles, newProfile];
+        localStorage.setItem('momo_creator_profiles', JSON.stringify(updatedProfiles));
+        localStorage.setItem('momo_creator_profile', JSON.stringify(newProfile));
+        setAllProfiles(updatedProfiles);
+        setProfile(newProfile);
+        localStorage.setItem('momo_active_profile_id', generatedId);
+        return { success: true };
+      }
+    } catch (err: any) {
+      setError(err.message || 'Erreur lors de la création de votre boutique.');
+      return { success: false, error: err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSetDemoMode = (val: boolean) => {
     setIsDemoMode(val);
     setUser(null);
     setProfile(null);
+    setAllProfiles([]);
     localStorage.removeItem('momo_creator_user');
     localStorage.removeItem('momo_creator_profile');
+    localStorage.removeItem('momo_creator_profiles');
   };
 
   return (
     <AuthContext.Provider value={{ 
       user, 
       profile, 
+      allProfiles,
       loading, 
       isDemoMode, 
       error, 
@@ -384,7 +487,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updateProfile,
       checkUsernameUnique,
       setDemoMode: handleSetDemoMode,
-      refreshStats
+      refreshStats,
+      switchProfile,
+      createAdditionalProfile
     }}>
       {children}
     </AuthContext.Provider>

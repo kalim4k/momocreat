@@ -125,7 +125,8 @@ function loadDB(): DBStructure {
         status: 'active',
         is_premium: true,
         premium_expires_at: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString(),
-        created_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+        created_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
+        store_quota: 2
       },
       {
         id: 'creator_2',
@@ -140,7 +141,8 @@ function loadDB(): DBStructure {
         status: 'active',
         is_premium: false,
         premium_expires_at: null,
-        created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+        created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        store_quota: 2
       },
       {
         id: 'creator_3',
@@ -155,7 +157,8 @@ function loadDB(): DBStructure {
         status: 'inactive',
         is_premium: true,
         premium_expires_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // Expired
-        created_at: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString()
+        created_at: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(),
+        store_quota: 2
       }
     ];
   }

@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, ReactNode } from 'react';
+import { useState, useEffect, ReactNode } from 'react';
 import { 
   Smartphone, 
   Sun, 
@@ -27,7 +27,13 @@ import {
   CreditCard,
   QrCode,
   Zap,
-  Download
+  Download,
+  Facebook,
+  Linkedin,
+  Globe,
+  Quote,
+  Youtube,
+  ShoppingBag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
@@ -52,6 +58,7 @@ import AdminCreators from './pages/admin/AdminCreators';
 import AdminWithdrawals from './pages/admin/AdminWithdrawals';
 import AdminSubscriptions from './pages/admin/AdminSubscriptions';
 import AdminTransactions from './pages/admin/AdminTransactions';
+import AdminContents from './pages/admin/AdminContents';
 import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 import Cgv from './pages/Cgv';
@@ -137,6 +144,7 @@ export default function App() {
             <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/dashboard/content" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/dashboard/sales" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/dashboard/withdrawals" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/dashboard/profile" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/dashboard/subscription" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -144,6 +152,7 @@ export default function App() {
             {/* Protected Admin Console Pages */}
             <Route path="/admin" element={<AdminRoute><AdminLayout><AdminOverview /></AdminLayout></AdminRoute>} />
             <Route path="/admin/creators" element={<AdminRoute><AdminLayout><AdminCreators /></AdminLayout></AdminRoute>} />
+            <Route path="/admin/contents" element={<AdminRoute><AdminLayout><AdminContents /></AdminLayout></AdminRoute>} />
             <Route path="/admin/withdrawals" element={<AdminRoute><AdminLayout><AdminWithdrawals /></AdminLayout></AdminRoute>} />
             <Route path="/admin/subscriptions" element={<AdminRoute><AdminLayout><AdminSubscriptions /></AdminLayout></AdminRoute>} />
             <Route path="/admin/transactions" element={<AdminRoute><AdminLayout><AdminTransactions /></AdminLayout></AdminRoute>} />
@@ -196,6 +205,41 @@ export function LandingPage() {
   const [demoPaymentState, setDemoPaymentState] = useState<'idle' | 'paying' | 'success'>('idle');
   const [demoPhone, setDemoPhone] = useState('');
   const [demoCardNumber, setDemoCardNumber] = useState('4242 4242 4242 4242');
+
+  // States for text animator in Hero and Accordion in FAQ
+  const [activeWordIdx, setActiveWordIdx] = useState(0);
+  const words = ["PDF 📄", "Formations 🎓", "Vidéos 🎥", "Photos 📸", "Audios 🎵"];
+  const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveWordIdx((prev) => (prev + 1) % words.length);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, []);
+
+  const faqData = [
+    {
+      q: "Comment mes abonnés paient-ils ?",
+      a: "Vos abonnés paient directement en utilisant leur compte Mobile Money local (Wave, Orange Money, MTN, Moov). Le processus prend moins de 10 secondes, s'effectue en monnaie locale (FCFA) et ne nécessite aucune création de compte pour l'acheteur."
+    },
+    {
+      q: "Quels sont les frais de MomoLink ?",
+      a: "L'inscription est 100% gratuite. Nous prélevons uniquement une commission de 10% sur chaque transaction réussie. Il n'y a aucun abonnement mensuel, aucun frais caché ni frais de retrait sur vos comptes."
+    },
+    {
+      q: "Dans quels pays le service est-il disponible ?",
+      a: "MomoLink est disponible et optimisé pour le Togo, la Côte d'Ivoire, le Sénégal et le Cameroun. Nous supportons toutes les intégrations Mobile Money majeures de ces régions."
+    },
+    {
+      q: "Comment puis-je retirer mes gains ?",
+      a: "Vous pouvez demander un retrait vers votre numéro Mobile Money (Wave, Orange, MTN ou Moov) à tout moment depuis votre tableau de bord. Les demandes sont traitées en moins de 24h ouvrées."
+    },
+    {
+      q: "La livraison des fichiers est-elle sécurisée ?",
+      a: "Oui, à chaque achat, nous générons un lien d'accès sécurisé et temporaire lié à l'email de l'acheteur. Le lien expire automatiquement après 1 heure, protégeant vos contenus contre la redistribution non autorisée."
+    }
+  ];
 
   // Exemples de contenus fictifs de démonstration
   const demoContents: Content[] = [
@@ -340,13 +384,45 @@ export function LandingPage() {
     document.getElementById('live-demo')?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const marqueeItems = [
+    { name: 'FACEBOOK', icon: <Facebook size={14} className="text-[#1877F2]" /> },
+    { 
+      name: 'TIKTOK', 
+      icon: (
+        <svg className="w-3.5 h-3.5 fill-current text-neutral-900 dark:text-white" viewBox="0 0 24 24">
+          <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.02 1.59 4.23.97 1.2 2.27 2.05 3.71 2.45v3.98c-1.8-.12-3.51-.83-4.88-2.02-.19-.17-.37-.36-.54-.56V15c.09 1.41-.33 2.82-1.19 3.94-.85 1.12-2.12 1.88-3.53 2.13-1.41.25-2.88-.04-4.08-.82-1.2-.78-2.06-2.02-2.39-3.44-.33-1.41-.12-2.91.59-4.17.7-1.26 1.88-2.17 3.26-2.53 1.09-.28 2.24-.2 3.28.23V5.51c0-1.83.02-3.66.02-5.49z"/>
+        </svg>
+      )
+    },
+    { 
+      name: 'BEHANCE', 
+      icon: (
+        <svg className="w-3.5 h-3.5 fill-current text-[#0057ff]" viewBox="0 0 24 24">
+          <path d="M8.2 2c-2.4 0-4.4.9-5.6 2.5C1.4 6 1 8.2 1 10.9c0 2.7.4 4.9 1.2 6.5 1.2 1.6 3.2 2.5 5.6 2.5 1.8 0 3.3-.5 4.4-1.6 1.1-1.1 1.6-2.6 1.6-4.5 0-1.7-.5-3.1-1.4-4.1-.9-1-2.1-1.5-3.7-1.5H5.8V8.1h3c1.2 0 2.1-.2 2.7-.7.6-.5.9-1.2.9-2.1 0-.9-.3-1.6-.9-2.1-.6-.5-1.5-.7-2.7-.7l-.6-.5zm0 13c0 .8-.2 1.4-.7 1.8-.5.4-1.2.6-2.1.6H5.8v-4.8h2.6c.9 0 1.6.2 2.1.6.5.4.7 1 .7 1.8zm11-13.8c-2.2 0-3.9.7-4.9 2C13.3 4.5 12.8 6.4 12.8 9c0 2.5.5 4.5 1.5 5.8s2.7 2 4.9 2c1.7 0 3.1-.4 4-1.2.9-.8 1.4-1.9 1.6-3.3h-3.2c-.1.5-.4.9-.8 1.2-.4.3-.9.4-1.6.4-1 0-1.7-.3-2.1-.9-.4-.6-.6-1.5-.6-2.7h8.2V9c0-2.5-.5-4.4-1.5-5.7s-2.6-2.1-4.8-2.1zm0 2.8c1 0 1.6.3 2 .9.4.6.5 1.4.5 2.5H15.9c0-1.1.2-1.9.6-2.5.4-.6 1.1-.9 2.1-.9zM15 1v1h7V1h-7z"/>
+        </svg>
+      )
+    },
+    { name: 'LINKEDIN', icon: <Linkedin size={14} className="text-[#0A66C2]" /> },
+    { name: 'VOTRE SITE', icon: <Globe size={14} className="text-emerald-600" /> },
+    { name: 'CITATIONS', icon: <Quote size={14} className="text-rose-500" /> },
+    { name: 'YOUTUBE', icon: <Youtube size={14} className="text-[#FF0000]" /> },
+    { name: 'PRODUITS', icon: <ShoppingBag size={14} className="text-purple-600" /> },
+    { name: 'X.COM', icon: <X size={14} className="text-neutral-900 dark:text-white" /> },
+    { name: 'INSTAGRAM', icon: <Instagram size={14} className="text-pink-600" /> }
+  ];
+
   return (
     <div className={`min-h-screen transition-colors duration-300 flex flex-col ${styles.bg} ${styles.textPrimary} font-sans`}>
       {/* Header */}
       <header id="app-header" className={`border-b ${styles.border} py-4 px-6 sticky top-0 backdrop-blur-md z-40 bg-opacity-80`}>
         <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-accent-corail animate-pulse" />
+          <div className="flex items-center gap-2.5">
+            <img 
+              src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
+              alt="Momo Creator Logo" 
+              className="h-8 w-8 object-contain rounded-lg"
+              id="app-logo"
+            />
             <h1 className="font-display text-2xl font-medium tracking-tight">Momo Creator</h1>
           </div>
 
@@ -388,68 +464,185 @@ export function LandingPage() {
           </motion.div>
         ))}
 
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent-corail/10 text-accent-corail text-xs font-semibold border border-accent-corail/20">
-          <Sparkles size={12} />
-          <span>Pour les créateurs sur TikTok, Instagram & Snapchat</span>
-        </div>
-
-        <h1 className="font-display text-4xl sm:text-6xl font-medium tracking-tight leading-tight max-w-3xl">
-          Monétisez votre communauté avec le <span className="text-accent-corail">Mobile Money</span>
-        </h1>
-
-        <p className={`text-base sm:text-lg ${styles.textSecondary} max-w-xl leading-relaxed`}>
-          Vendez vos guides, formations, photos ou vidéos exclusifs directement à vos abonnés au Togo, en Côte d’Ivoire, au Sénégal et au Cameroun. Vos fans paient en un clic via <strong>Wave, Orange, MTN ou Moov</strong>.
-        </p>
-
-        {/* Inline payment row - Only displayed on mobile screen viewports */}
-        <div id="payment-logos-showcase" className="flex flex-col items-center justify-center gap-2.5 mt-2 md:hidden">
-          <span className={`text-[10px] font-bold ${styles.textSecondary} opacity-80 uppercase tracking-widest`}>
-            Paiements Mobile Money acceptés
-          </span>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {floatingLogos.map((logo, idx) => (
-              <img
-                key={idx}
-                src={logo.url}
-                alt={`Méthode de paiement ${idx + 1}`}
-                referrerPolicy="no-referrer"
-                className="h-8 w-auto object-contain rounded-md border border-border-custom/50 bg-white p-1"
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-center gap-4 mt-4 w-full justify-center">
-          <Link
-            id="hero-primary-cta"
-            to="/auth/signup"
-            className="w-full sm:w-auto px-8 py-3.5 rounded-full text-sm font-semibold bg-accent-corail text-white hover:bg-accent-corail-hover transition-all duration-200 cursor-pointer shadow-lg shadow-accent-corail/15 flex items-center justify-center gap-2"
+        {/* Animated Hero Text Content */}
+        <motion.div
+          className="flex flex-col items-center text-center gap-6"
+          initial="hidden"
+          animate="visible"
+          variants={{
+            hidden: { opacity: 0 },
+            visible: {
+              opacity: 1,
+              transition: {
+                staggerChildren: 0.15,
+                delayChildren: 0.1
+              }
+            }
+          }}
+        >
+          {/* Badge */}
+          <motion.div 
+            variants={{
+              hidden: { opacity: 0, y: 15 },
+              visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100 } }
+            }}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent-corail/10 text-accent-corail text-xs font-semibold border border-accent-corail/20"
           >
-            <span>Devenir créateur (Gratuit)</span>
-            <ArrowRight size={16} />
-          </Link>
+            <Sparkles size={12} className="animate-pulse" />
+            <span>Pour les créateurs sur TikTok, Instagram & Snapchat</span>
+          </motion.div>
+
+          {/* Title */}
+          <motion.h1 
+            variants={{
+              hidden: { opacity: 0, y: 25 },
+              visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 80, damping: 15 } }
+            }}
+            className="font-display text-4xl sm:text-6xl font-extrabold tracking-tight leading-tight max-w-4xl text-neutral-900 dark:text-white"
+          >
+            Vendez vos{" "}
+            <span className="text-accent-corail relative inline-flex justify-center h-[48px] sm:h-[80px] min-w-[130px] sm:min-w-[280px] overflow-hidden align-bottom">
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={activeWordIdx}
+                  initial={{ y: 35, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: -35, opacity: 0 }}
+                  transition={{ duration: 0.35, ease: "easeInOut" }}
+                  className="absolute left-0 right-0 text-center"
+                >
+                  {words[activeWordIdx]}
+                </motion.span>
+              </AnimatePresence>
+            </span>{" "}
+            avec le Mobile Money
+          </motion.h1>
+
+          {/* Paragraph */}
+          <motion.p 
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              visible: { opacity: 1, y: 0, transition: { duration: 0.5 } }
+            }}
+            className={`text-base sm:text-lg ${styles.textSecondary} max-w-2xl leading-relaxed`}
+          >
+            Vendez vos guides, formations, photos ou vidéos exclusifs directement à vos abonnés au Togo, en Côte d’Ivoire, au Sénégal et au Cameroun. Vos fans paient en un clic via <strong>Wave, Orange, MTN ou Moov</strong>.
+          </motion.p>
+
+          {/* Inline payment row - Only displayed on mobile screen viewports */}
+          <motion.div 
+            variants={{
+              hidden: { opacity: 0 },
+              visible: { opacity: 1 }
+            }}
+            id="payment-logos-showcase" 
+            className="flex flex-col items-center justify-center gap-2.5 mt-2 md:hidden"
+          >
+            <span className={`text-[10px] font-bold ${styles.textSecondary} opacity-80 uppercase tracking-widest`}>
+              Paiements Mobile Money acceptés
+            </span>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {floatingLogos.map((logo, idx) => (
+                <img
+                  key={idx}
+                  src={logo.url}
+                  alt={`Méthode de paiement ${idx + 1}`}
+                  referrerPolicy="no-referrer"
+                  className="h-8 w-auto object-contain rounded-md border border-border-custom/50 bg-white p-1"
+                />
+              ))}
+            </div>
+          </motion.div>
+
+          {/* Call to action */}
+          <motion.div 
+            variants={{
+              hidden: { opacity: 0, scale: 0.95 },
+              visible: { opacity: 1, scale: 1, transition: { type: "spring", stiffness: 100 } }
+            }}
+            className="flex flex-col sm:flex-row items-center gap-4 mt-2 w-full justify-center"
+          >
+            <Link
+              id="hero-primary-cta"
+              to="/auth/signup"
+              className="w-full sm:w-auto px-8 py-3.5 rounded-full text-sm font-bold bg-accent-corail text-white hover:bg-accent-corail-hover hover:scale-105 transition-all duration-200 cursor-pointer shadow-lg shadow-accent-corail/25 flex items-center justify-center gap-2"
+            >
+              <span>Devenir créateur (Gratuit)</span>
+              <ArrowRight size={16} />
+            </Link>
+          </motion.div>
+
+          {/* Active Users Social Proof Badge */}
+          <motion.div
+            variants={{
+              hidden: { opacity: 0, y: 10 },
+              visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100, delay: 0.2 } }
+            }}
+            className="flex items-center gap-3 mt-1"
+          >
+            <div className="flex -space-x-2.5">
+              <img className="w-8 h-8 rounded-full border-2 border-white dark:border-neutral-900 object-cover shadow-sm" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=80&h=80&q=80" alt="Créateur 1" />
+              <img className="w-8 h-8 rounded-full border-2 border-white dark:border-neutral-900 object-cover shadow-sm" src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=80&h=80&q=80" alt="Créateur 2" />
+              <img className="w-8 h-8 rounded-full border-2 border-white dark:border-neutral-900 object-cover shadow-sm" src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=80&h=80&q=80" alt="Créateur 3" />
+              <img className="w-8 h-8 rounded-full border-2 border-white dark:border-neutral-900 object-cover shadow-sm" src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=80&h=80&q=80" alt="Créateur 4" />
+            </div>
+            <div className="flex flex-col items-start gap-0.5">
+              <div className="flex items-center text-amber-500 text-xs">
+                ★ ★ ★ ★ ★
+              </div>
+              <span className={`text-[11px] font-bold ${styles.textPrimary}`}>
+                +500 créateurs actifs
+              </span>
+            </div>
+          </motion.div>
+
+          {/* Trust badges */}
+          <motion.div 
+            variants={{
+              hidden: { opacity: 0 },
+              visible: { opacity: 1, transition: { delay: 0.6, duration: 0.5 } }
+            }}
+            className="flex flex-wrap items-center justify-center gap-y-2 gap-x-6 text-xs mt-4 opacity-80"
+          >
+            <span className="flex items-center gap-1.5 font-medium">
+              <Check size={14} className="text-success-gold shrink-0" /> Sans abonnement, sans frais cachés
+            </span>
+            <span className="flex items-center gap-1.5 font-medium">
+              <Check size={14} className="text-success-gold shrink-0" /> Retraits directs en 24h
+            </span>
+            <span className="flex items-center gap-1.5 font-medium">
+              <Check size={14} className="text-success-gold shrink-0" /> Sécurité maximale (liens signés)
+            </span>
+          </motion.div>
+        </motion.div>
+      </section>
+
+      {/* Infinite Scrolling Marquee of Social Networks */}
+      <section className={`py-8 border-b ${styles.border} overflow-hidden bg-bg-surface`}>
+        <div className="max-w-6xl mx-auto flex flex-col items-center gap-3">
+          <span className={`text-[10px] font-bold uppercase tracking-widest ${styles.textSecondary} opacity-70`}>
+            NOTRE WIDGET
+          </span>
           
-          <button
-            id="hero-secondary-cta"
-            onClick={handleScrollToDemo}
-            className={`w-full sm:w-auto px-8 py-3.5 rounded-full text-sm font-semibold border ${styles.border} ${styles.hoverBg} transition-all duration-200 cursor-pointer flex items-center justify-center gap-2`}
-          >
-            <Eye size={16} />
-            <span>Essayer la démo acheteur</span>
-          </button>
-        </div>
-
-        {/* Info badges */}
-        <div className="flex flex-wrap items-center justify-center gap-y-2 gap-x-6 text-xs mt-6 opacity-80">
-          <span className="flex items-center gap-1.5">
-            <Check size={14} className="text-success-gold" /> Sans abonnement, sans frais cachés
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Check size={14} className="text-success-gold" /> Retraits directs en 24h
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Check size={14} className="text-success-gold" /> Sécurité maximale (liens signés)
-          </span>
+          <div className="relative w-full overflow-hidden mask-fade-edges">
+            {/* Infinite Horizontal Scroll */}
+            <div className="animate-marquee-infinite flex items-center gap-8 py-2">
+              {/* First loop */}
+              {marqueeItems.map((item, idx) => (
+                <div key={`m1-${idx}`} className={`flex items-center gap-2.5 px-4 py-2 rounded-full border ${styles.border} ${styles.surface} shadow-sm shrink-0`}>
+                  {item.icon}
+                  <span className={`text-[10px] font-bold tracking-wider ${styles.textPrimary}`}>{item.name}</span>
+                </div>
+              ))}
+              {/* Second loop (duplicate for seamless scrolling) */}
+              {marqueeItems.map((item, idx) => (
+                <div key={`m2-${idx}`} className={`flex items-center gap-2.5 px-4 py-2 rounded-full border ${styles.border} ${styles.surface} shadow-sm shrink-0`}>
+                  {item.icon}
+                  <span className={`text-[10px] font-bold tracking-wider ${styles.textPrimary}`}>{item.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -869,6 +1062,60 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      {/* FAQ Section */}
+      <section id="faq" className={`py-20 px-4 border-t ${styles.border}`}>
+        <div className="max-w-3xl mx-auto flex flex-col gap-10">
+          <div className="text-center flex flex-col gap-2">
+            <span className="text-[10px] font-bold text-accent-corail uppercase tracking-widest">Questions Fréquentes</span>
+            <h2 className={`font-display text-3xl font-medium tracking-tight ${styles.textPrimary}`}>
+              Tout ce que vous devez savoir
+            </h2>
+            <p className={`text-xs ${styles.textSecondary} max-w-md mx-auto`}>
+              Vous avez des questions sur le fonctionnement de MomoLink ? Nous avons réuni les réponses les plus fréquentes pour vous aider.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {faqData.map((faq, idx) => {
+              const isOpen = openFaqIdx === idx;
+              return (
+                <div 
+                  key={idx} 
+                  className={`border ${styles.border} ${styles.surface} rounded-2xl overflow-hidden transition-all duration-200 shadow-sm`}
+                >
+                  <button
+                    onClick={() => setOpenFaqIdx(isOpen ? null : idx)}
+                    className="w-full px-6 py-4 flex items-center justify-between text-left gap-4 hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                  >
+                    <span className={`text-xs font-semibold ${styles.textPrimary}`}>
+                      {faq.q}
+                    </span>
+                    <span className={`text-xs font-bold transition-transform duration-200 shrink-0 ${isOpen ? 'rotate-180 text-accent-corail' : 'text-gray-400'}`}>
+                      ▼
+                    </span>
+                  </button>
+
+                  <motion.div
+                    initial={false}
+                    animate={{ 
+                      height: isOpen ? "auto" : 0, 
+                      opacity: isOpen ? 1 : 0 
+                    }}
+                    transition={{ duration: 0.25, ease: "easeInOut" }}
+                    className="overflow-hidden"
+                  >
+                    <div className={`px-6 pb-4 pt-1 border-t ${styles.border} bg-neutral-50/50 dark:bg-neutral-900/20`}>
+                      <p className={`text-xs leading-relaxed ${styles.textSecondary}`}>
+                        {faq.a}
+                      </p>
+                    </div>
+                  </motion.div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
 
       {/* Footer Final CTA */}
       <section id="final-cta" className="max-w-4xl w-full mx-auto px-4 py-20 flex flex-col items-center text-center gap-8">
@@ -897,16 +1144,68 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className={`border-t ${styles.border} py-8 px-6 text-center text-xs ${styles.textSecondary}`}>
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div>
-            <strong>Momo Creator</strong> © {new Date().getFullYear()} — La plateforme de monétisation préférée des créateurs africains.
+      {/* Redesigned Premium Footer */}
+      <footer className={`border-t ${styles.border} ${styles.surface} py-16 px-6 text-xs transition-colors duration-300`}>
+        <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-10">
+          {/* Brand Info */}
+          <div className="flex flex-col gap-4 text-left">
+            <div className="flex items-center gap-2">
+              <img 
+                src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
+                alt="MomoLink Logo" 
+                className="h-7 w-7 object-contain rounded-md"
+              />
+              <span className={`font-display font-bold text-base tracking-tight ${styles.textPrimary}`}>
+                MomoLink <span className="text-accent-corail text-xs font-semibold">Pro</span>
+              </span>
+            </div>
+            <p className={`leading-relaxed ${styles.textSecondary}`}>
+              La plateforme leader pour monétiser vos contenus exclusifs en Afrique de l'Ouest et Centrale avec le Mobile Money.
+            </p>
+            <div className={`text-[10px] ${styles.textSecondary} opacity-70`}>
+              © {new Date().getFullYear()} MomoLink Inc. Tous droits réservés.
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            <Link to="/legal/terms" className="hover:underline cursor-pointer">Conditions d’utilisation</Link>
-            <Link to="/legal/sales" className="hover:underline cursor-pointer">Conditions de vente (CGV)</Link>
-            <Link to="/legal/privacy" className="hover:underline cursor-pointer">Politique de confidentialité</Link>
+
+          {/* Useful Links */}
+          <div className="flex flex-col gap-3 text-left">
+            <h4 className={`font-bold uppercase tracking-wider text-[10px] ${styles.textPrimary}`}>
+              Ressources
+            </h4>
+            <div className="flex flex-col gap-2">
+              <Link to="/auth/signup" className={`hover:text-accent-corail transition-colors ${styles.textSecondary}`}>Devenir Créateur</Link>
+              <Link to="/portal" className={`hover:text-accent-corail transition-colors ${styles.textSecondary}`}>Espace Client / Achats</Link>
+              <a href="#how-it-works" className={`hover:text-accent-corail transition-colors ${styles.textSecondary}`}>Comment ça marche</a>
+              <a href="#live-demo" className={`hover:text-accent-corail transition-colors ${styles.textSecondary}`}>Démonstration Live</a>
+            </div>
+          </div>
+
+          {/* Legal Links */}
+          <div className="flex flex-col gap-3 text-left">
+            <h4 className={`font-bold uppercase tracking-wider text-[10px] ${styles.textPrimary}`}>
+              Légal
+            </h4>
+            <div className="flex flex-col gap-2">
+              <Link to="/legal/terms" className={`hover:text-accent-corail transition-colors ${styles.textSecondary}`}>Conditions d’utilisation</Link>
+              <Link to="/legal/sales" className={`hover:text-accent-corail transition-colors ${styles.textSecondary}`}>Conditions de vente (CGV)</Link>
+              <Link to="/legal/privacy" className={`hover:text-accent-corail transition-colors ${styles.textSecondary}`}>Politique de confidentialité</Link>
+            </div>
+          </div>
+
+          {/* Regions and Support */}
+          <div className="flex flex-col gap-3 text-left">
+            <h4 className={`font-bold uppercase tracking-wider text-[10px] ${styles.textPrimary}`}>
+              Disponibilité & Support
+            </h4>
+            <p className={`leading-relaxed ${styles.textSecondary}`}>
+              Support disponible 24/7 par email : <a href="mailto:support@momolink.pro" className="text-accent-corail hover:underline">support@momolink.pro</a>
+            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <span className={`px-2.5 py-1 rounded bg-bg-primary text-[10px] font-semibold border ${styles.border}`}>🇨🇮 CI</span>
+              <span className={`px-2.5 py-1 rounded bg-bg-primary text-[10px] font-semibold border ${styles.border}`}>🇸🇳 SN</span>
+              <span className={`px-2.5 py-1 rounded bg-bg-primary text-[10px] font-semibold border ${styles.border}`}>🇹🇬 TG</span>
+              <span className={`px-2.5 py-1 rounded bg-bg-primary text-[10px] font-semibold border ${styles.border}`}>🇨🇲 CM</span>
+            </div>
           </div>
         </div>
       </footer>

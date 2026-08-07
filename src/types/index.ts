@@ -23,6 +23,7 @@ export interface CreatorProfile {
   payout_provider: 'wave' | 'orange' | 'mtn' | 'moov' | null;
   status?: 'active' | 'inactive';
   created_at: string;
+  store_quota?: number;
 }
 
 export interface Content {

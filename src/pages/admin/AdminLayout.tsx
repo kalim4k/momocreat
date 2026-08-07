@@ -9,7 +9,10 @@ import {
   LogOut, 
   Menu, 
   X,
-  User
+  User,
+  FileText,
+  PanelLeftClose,
+  PanelLeftOpen
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -22,10 +25,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isAdminSidebarCollapsed, setIsAdminSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('momo_admin_sidebar_collapsed') === 'true';
+  });
 
   const navigation = [
     { name: 'Vue d\'ensemble', href: '/admin', icon: LayoutDashboard },
     { name: 'Créateurs', href: '/admin/creators', icon: Users },
+    { name: 'Contenus', href: '/admin/contents', icon: FileText },
     { name: 'Retraits', href: '/admin/withdrawals', icon: Wallet },
     { name: 'Abonnements', href: '/admin/subscriptions', icon: Calendar },
     { name: 'Transactions', href: '/admin/transactions', icon: History },
@@ -52,6 +59,11 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       {/* Mobile Top Bar */}
       <div className="md:hidden bg-bg-surface border-b border-border-custom px-4 py-3 flex items-center justify-between sticky top-0 z-40">
         <div className="flex items-center gap-3">
+          <img 
+            src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
+            alt="MomoLink Logo" 
+            className="h-7 w-7 object-contain rounded-lg"
+          />
           <span className="font-bold text-xl tracking-tight text-text-primary">Momo<span className="text-accent-corail">Link</span></span>
           <span className="bg-[#FF5252] text-white text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide uppercase">Admin</span>
         </div>
@@ -66,27 +78,38 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
       {/* Sidebar Navigation */}
       <aside className={`
-        fixed inset-y-0 left-0 z-30 w-64 bg-bg-surface border-r border-border-custom flex flex-col transition-transform duration-300 transform
+        fixed inset-y-0 left-0 z-30 bg-bg-surface border-r border-border-custom flex flex-col transition-all duration-300 transform
         md:translate-x-0 md:static md:h-screen
+        ${isAdminSidebarCollapsed ? 'w-20' : 'w-64'}
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
         {/* Sidebar Header */}
-        <div className="hidden md:flex items-center justify-between px-6 py-5 border-b border-border-custom">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-xl tracking-tight text-text-primary">Momo<span className="text-accent-corail">Link</span></span>
-            <span className="bg-[#FF5252] text-white text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide uppercase">Admin</span>
+        <div className={`hidden md:flex items-center ${isAdminSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-6'} py-5 border-b border-border-custom`}>
+          <div className={`flex items-center ${isAdminSidebarCollapsed ? 'justify-center' : 'gap-2.5'}`}>
+            <img 
+              src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
+              alt="MomoLink Logo" 
+              className="h-7 w-7 object-contain rounded-lg shadow-sm shrink-0"
+            />
+            {!isAdminSidebarCollapsed && (
+              <>
+                <span className="font-bold text-xl tracking-tight text-text-primary">Momo<span className="text-accent-corail">Link</span></span>
+                <span className="bg-[#FF5252] text-white text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide uppercase">Admin</span>
+              </>
+            )}
           </div>
         </div>
 
         {/* User Info */}
-        <div className="px-6 py-4 border-b border-border-custom bg-bg-primary/50 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-accent-corail/10 flex items-center justify-center text-accent-corail border border-accent-corail/20">
+        <div className={`px-6 py-4 border-b border-border-custom bg-bg-primary/50 flex items-center gap-3 ${isAdminSidebarCollapsed ? 'justify-center px-0' : ''}`}>
+          <div className="w-9 h-9 rounded-full bg-accent-corail/10 flex items-center justify-center text-accent-corail border border-accent-corail/20 shrink-0">
             <User size={18} />
           </div>
-          <div className="overflow-hidden">
-            <p className="text-xs text-text-secondary truncate">Super Admin</p>
-            <p className="text-sm font-medium text-text-primary truncate" title={user?.email || ''}>{user?.email || 'admin@momolink'}</p>
-          </div>
+          {!isAdminSidebarCollapsed && (
+            <div className="overflow-hidden">
+              <p className="text-sm font-semibold text-text-primary truncate">Super Admin</p>
+            </div>
+          )}
         </div>
 
         {/* Navigation Items */}
@@ -98,8 +121,10 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                 key={item.name}
                 to={item.href}
                 onClick={() => setIsMobileMenuOpen(false)}
+                title={isAdminSidebarCollapsed ? item.name : undefined}
                 className={`
-                  flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200
+                  flex items-center rounded-lg text-sm font-medium transition-all duration-200
+                  ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-4 py-3'}
                   ${active 
                     ? 'bg-bg-primary text-accent-corail border-l-2 border-accent-corail pl-3.5' 
                     : 'text-text-secondary hover:text-text-primary hover:bg-bg-primary/40'
@@ -107,22 +132,46 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                 `}
                 id={`nav-${item.href.replace('/admin', 'admin')}`}
               >
-                <item.icon size={18} className={active ? 'text-accent-corail' : 'text-text-secondary'} />
-                {item.name}
+                <item.icon size={18} className={active ? 'text-accent-corail shrink-0' : 'text-text-secondary shrink-0'} />
+                {!isAdminSidebarCollapsed && <span>{item.name}</span>}
               </Link>
             );
           })}
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="p-4 border-t border-border-custom">
+        <div className="p-4 border-t border-border-custom space-y-1">
+          {/* Logout Button */}
           <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-bg-primary/40 border border-transparent hover:border-border-custom transition-all"
+            title={isAdminSidebarCollapsed ? "Déconnexion" : undefined}
+            className={`w-full flex items-center rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-bg-primary/40 transition-all duration-200 ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-4 py-3'}`}
             id="admin-logout-btn"
           >
-            <LogOut size={16} />
-            Déconnexion
+            <LogOut size={18} className="shrink-0" />
+            {!isAdminSidebarCollapsed && <span>Déconnexion</span>}
+          </button>
+
+          {/* Collapse Toggle Button */}
+          <button
+            onClick={() => {
+              setIsAdminSidebarCollapsed(prev => {
+                const newVal = !prev;
+                localStorage.setItem('momo_admin_sidebar_collapsed', String(newVal));
+                return newVal;
+              });
+            }}
+            className={`w-full flex items-center rounded-lg text-xs font-semibold text-text-secondary hover:text-accent-corail hover:bg-bg-primary/40 transition-all duration-200 cursor-pointer ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-4 py-3'}`}
+            title={isAdminSidebarCollapsed ? "Développer le menu" : "Réduire le menu"}
+          >
+            {isAdminSidebarCollapsed ? (
+              <PanelLeftOpen size={18} className="shrink-0" />
+            ) : (
+              <>
+                <PanelLeftClose size={18} className="shrink-0" />
+                <span>Réduire le menu</span>
+              </>
+            )}
           </button>
         </div>
       </aside>

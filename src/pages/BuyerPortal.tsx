@@ -72,7 +72,12 @@ export default function BuyerPortal() {
           <span>Retour</span>
         </button>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
+          <img 
+            src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
+            alt="MomoLink Logo" 
+            className="h-6 w-6 object-contain rounded-md"
+          />
           <span className="font-display font-bold text-sm tracking-tight text-neutral-900">
             MomoLink <span className="text-accent-corail text-xs font-semibold">Pro</span>
           </span>

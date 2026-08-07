@@ -764,30 +764,51 @@ async function isCreatorSubscribedServer(creatorId: string): Promise<boolean> {
 
   if (supabase) {
     try {
-      // 1. Check if creator profile is_premium is manually set
-      const { data: creator, error: cpError } = await supabase
+      // Fetch user_id for this creatorId first
+      const { data: currentCreator } = await supabase
         .from('creator_profiles')
-        .select('is_premium, premium_expires_at')
+        .select('user_id')
         .eq('id', creatorId)
         .maybeSingle();
 
-      if (!cpError && creator?.is_premium) {
-        if (!creator.premium_expires_at || new Date(creator.premium_expires_at).getTime() > graceLimit.getTime()) {
+      if (currentCreator?.user_id) {
+        const userId = currentCreator.user_id;
+
+        // 1. Check if ANY creator profile for this user has is_premium set
+        const { data: premiumProfiles } = await supabase
+          .from('creator_profiles')
+          .select('is_premium, premium_expires_at')
+          .eq('user_id', userId)
+          .eq('is_premium', true);
+
+        const hasPremiumProfile = (premiumProfiles || []).some(cp => 
+          !cp.premium_expires_at || new Date(cp.premium_expires_at).getTime() > graceLimit.getTime()
+        );
+
+        if (hasPremiumProfile) {
           return true;
         }
-      }
 
-      // 2. Check subscriptions table
-      const { data, error } = await supabase
-        .from('subscriptions')
-        .select('end_date')
-        .eq('creator_id', creatorId)
-        .eq('status', 'active')
-        .gt('end_date', graceLimit.toISOString())
-        .maybeSingle();
+        // 2. Check if ANY creator profile for this user has an active subscription
+        const { data: userProfiles } = await supabase
+          .from('creator_profiles')
+          .select('id')
+          .eq('user_id', userId);
+        
+        const profileIds = (userProfiles || []).map(p => p.id);
 
-      if (!error && data) {
-        return true;
+        if (profileIds.length > 0) {
+          const { data: subs, error } = await supabase
+            .from('subscriptions')
+            .select('end_date')
+            .in('creator_id', profileIds)
+            .eq('status', 'active')
+            .gt('end_date', graceLimit.toISOString());
+
+          if (!error && subs && subs.length > 0) {
+            return true;
+          }
+        }
       }
     } catch (err) {
       console.warn('[Server] Supabase error in isCreatorSubscribedServer:', err);
@@ -796,10 +817,22 @@ async function isCreatorSubscribedServer(creatorId: string): Promise<boolean> {
 
   // Fallback to local server db
   const localCreator = serverDb.getCreators().find(c => c.id === creatorId);
-  if (localCreator && localCreator.is_premium) {
-    return true;
+  if (localCreator) {
+    const userId = localCreator.user_id;
+    // Check if any local creator with same user_id is premium
+    const localUserCreators = serverDb.getCreators().filter(c => c.user_id === userId);
+    const anyPremium = localUserCreators.some(c => c.is_premium);
+    if (anyPremium) return true;
+
+    // Check if any local creator with same user_id has subscription
+    for (const c of localUserCreators) {
+      if (serverDb.isCreatorSubscribed(c.id)) {
+        return true;
+      }
+    }
   }
-  return serverDb.isCreatorSubscribed(creatorId);
+  
+  return false;
 }
 
 async function apply_subscription_expiry() {
@@ -822,14 +855,40 @@ async function apply_subscription_expiry() {
             // Check if creator profile is_premium is set to true manually
             const { data: creatorProfile } = await supabase
               .from('creator_profiles')
-              .select('is_premium, premium_expires_at')
+              .select('user_id, is_premium, premium_expires_at')
               .eq('id', sub.creator_id)
               .maybeSingle();
 
-            if (creatorProfile?.is_premium) {
-              if (!creatorProfile.premium_expires_at || new Date(creatorProfile.premium_expires_at).getTime() > Date.now()) {
-                console.log(`[Server] Skipping auto-drafting for premium creator ${sub.creator_id}`);
+            if (creatorProfile) {
+              // 1. Check if user has any active premium profiles
+              const { data: userProfiles } = await supabase
+                .from('creator_profiles')
+                .select('id, is_premium, premium_expires_at')
+                .eq('user_id', creatorProfile.user_id);
+              
+              const hasPremium = (userProfiles || []).some(cp => 
+                cp.is_premium && (!cp.premium_expires_at || new Date(cp.premium_expires_at).getTime() > Date.now())
+              );
+              if (hasPremium) {
+                console.log(`[Server] Skipping auto-drafting for user ${creatorProfile.user_id} due to premium profile`);
                 continue;
+              }
+
+              // 2. Check if user has any other active subscriptions
+              const profileIds = (userProfiles || []).map(p => p.id);
+              if (profileIds.length > 0) {
+                const { data: activeSubs } = await supabase
+                  .from('subscriptions')
+                  .select('id')
+                  .in('creator_id', profileIds)
+                  .eq('status', 'active')
+                  .gt('end_date', thresholdDate.toISOString())
+                  .neq('id', sub.id); // Exclude the current expired one
+                
+                if (activeSubs && activeSubs.length > 0) {
+                  console.log(`[Server] Skipping auto-drafting for creator ${sub.creator_id} because another boutique has an active subscription`);
+                  continue;
+                }
               }
             }
 
@@ -1160,27 +1219,45 @@ app.get('/api/subscription/status', async (req, res) => {
     let isPremiumFromProfile = false;
     let premiumExpiresAt = null;
 
+    let userId = '';
+
     if (supabase) {
       try {
-        const { data: profile, error: profErr } = await supabase
+        const { data: currentProfile } = await supabase
           .from('creator_profiles')
-          .select('is_premium, premium_expires_at')
+          .select('user_id')
           .eq('id', creatorId)
           .maybeSingle();
 
-        if (!profErr && profile) {
-          isPremiumFromProfile = profile.is_premium;
-          premiumExpiresAt = profile.premium_expires_at;
-        }
+        if (currentProfile) {
+          userId = currentProfile.user_id;
 
-        const { data, error } = await supabase
-          .from('subscriptions')
-          .select('*')
-          .eq('creator_id', creatorId)
-          .order('created_at', { ascending: false });
+          // Fetch all profiles of this user
+          const { data: userProfiles } = await supabase
+            .from('creator_profiles')
+            .select('id, is_premium, premium_expires_at')
+            .eq('user_id', userId);
 
-        if (!error && data) {
-          subscriptionsList = data;
+          // Check if any profile is premium
+          const anyPremium = (userProfiles || []).find(p => p.is_premium);
+          if (anyPremium) {
+            isPremiumFromProfile = true;
+            premiumExpiresAt = anyPremium.premium_expires_at;
+          }
+
+          // Fetch subscriptions for all profiles of this user
+          const profileIds = (userProfiles || []).map(p => p.id);
+          if (profileIds.length > 0) {
+            const { data, error } = await supabase
+              .from('subscriptions')
+              .select('*')
+              .in('creator_id', profileIds)
+              .order('created_at', { ascending: false });
+
+            if (!error && data) {
+              subscriptionsList = data;
+            }
+          }
         }
       } catch (err) {
         console.warn('[Server] Supabase error loading subscriptions:', err);
@@ -1188,13 +1265,38 @@ app.get('/api/subscription/status', async (req, res) => {
     } else {
       const creator = serverDb.getCreators().find(c => c.id === creatorId);
       if (creator) {
-        isPremiumFromProfile = creator.is_premium === true;
-        premiumExpiresAt = creator.premium_expires_at || null;
+        userId = creator.user_id;
+        const userProfiles = serverDb.getCreators().filter(c => c.user_id === userId);
+        const anyPremium = userProfiles.find(p => p.is_premium);
+        if (anyPremium) {
+          isPremiumFromProfile = true;
+          premiumExpiresAt = anyPremium.premium_expires_at || null;
+        }
+
+        // Fetch subscriptions for all profiles of this user in local DB
+        userProfiles.forEach(p => {
+          const localSubs = serverDb.getCreatorSubscriptions(p.id);
+          localSubs.forEach(s => {
+            subscriptionsList.push({
+              id: s.id,
+              creator_id: s.creatorId,
+              transaction_id: s.transactionId,
+              amount_paid: s.amountPaid,
+              currency: s.currency,
+              start_date: s.startDate,
+              end_date: s.endDate,
+              status: s.status,
+              created_at: s.createdAt
+            });
+          });
+        });
+        // Sort by created_at desc
+        subscriptionsList.sort((a,b) => b.created_at.localeCompare(a.created_at));
       }
     }
 
-    // Merge or fall back to local DB
-    const localSubs = serverDb.getCreatorSubscriptions(creatorId as string);
+    // Merge or fall back to local DB if empty
+    const localSubs = subscriptionsList.length === 0 ? serverDb.getCreatorSubscriptions(creatorId as string) : [];
     if (subscriptionsList.length === 0 && localSubs.length > 0) {
       subscriptionsList = localSubs.map(s => ({
         id: s.id,
@@ -1637,7 +1739,6 @@ const getCreatorBalance = async (creatorId: string) => {
   }
 };
 
-// 2. GET /api/admin/kpis -> grid of 4 KPI statistics
 app.get('/api/admin/kpis', async (req, res) => {
   try {
     const startOfMonth = new Date();
@@ -1650,6 +1751,11 @@ app.get('/api/admin/kpis', async (req, res) => {
     let totalVolume = 0;
     let pendingWithdrawalsCount = 0;
     let usedFallback = false;
+
+    let uniqueUsersCount = 0;
+    let totalShopsCount = 0;
+    let avgShopsPerUser = 0;
+    let topShopsForMultiShopUsers: any[] = [];
 
     if (supabaseAdmin) {
       try {
@@ -1681,6 +1787,62 @@ app.get('/api/admin/kpis', async (req, res) => {
           .eq('status', 'pending');
         if (err3) throw err3;
         pendingWithdrawalsCount = pendingWithdrawals || 0;
+
+        // Multi-Boutique KPIs calculations
+        const { data: allProfiles } = await supabaseAdmin
+          .from('creator_profiles')
+          .select('id, user_id, username, display_name, status');
+        
+        const { data: allPurchases } = await supabaseAdmin
+          .from('purchases')
+          .select('creator_id, amount_paid_fcfa')
+          .eq('status', 'completed');
+
+        const profiles = allProfiles || [];
+        const purchases = allPurchases || [];
+
+        totalShopsCount = profiles.length;
+        const uniqueUsers = new Set(profiles.map(p => p.user_id));
+        uniqueUsersCount = uniqueUsers.size;
+        avgShopsPerUser = uniqueUsersCount > 0 ? Number((totalShopsCount / uniqueUsersCount).toFixed(2)) : 0;
+
+        const revenueMap: Record<string, number> = {};
+        purchases.forEach(p => {
+          revenueMap[p.creator_id] = (revenueMap[p.creator_id] || 0) + (p.amount_paid_fcfa || 0);
+        });
+
+        const userShops: Record<string, any[]> = {};
+        profiles.forEach(p => {
+          const rev = revenueMap[p.id] || 0;
+          if (!userShops[p.user_id]) {
+            userShops[p.user_id] = [];
+          }
+          userShops[p.user_id].push({
+            id: p.id,
+            username: p.username,
+            displayName: p.display_name,
+            revenue: rev
+          });
+        });
+
+        Object.entries(userShops).forEach(([userId, shops]) => {
+          if (shops.length > 1) {
+            let maxRevShop = shops[0];
+            shops.forEach(s => {
+              if (s.revenue > maxRevShop.revenue) {
+                maxRevShop = s;
+              }
+            });
+            topShopsForMultiShopUsers.push({
+              userId,
+              displayName: maxRevShop.displayName || 'Sans Nom',
+              username: maxRevShop.username,
+              revenue: maxRevShop.revenue,
+              totalShopsCount: shops.length
+            });
+          }
+        });
+
       } catch (dbErr) {
         console.warn('[Server] Supabase query failed for KPIs, falling back to mock data:', dbErr);
         usedFallback = true;
@@ -1699,6 +1861,51 @@ app.get('/api/admin/kpis', async (req, res) => {
 
       const withdrawals = serverDb.getWithdrawals();
       pendingWithdrawalsCount = withdrawals.filter(w => w.status === 'pending').length;
+
+      // Local DB multi-boutique calcs
+      totalShopsCount = creators.length;
+      const uniqueUsers = new Set(creators.map(c => c.user_id));
+      uniqueUsersCount = uniqueUsers.size;
+      avgShopsPerUser = uniqueUsersCount > 0 ? Number((totalShopsCount / uniqueUsersCount).toFixed(2)) : 0;
+
+      const completedPurchases = purchases.filter(p => p.status === 'completed');
+      const revenueMap: Record<string, number> = {};
+      completedPurchases.forEach(p => {
+        const cId = p.contentId === '3e1df9e1-7c23-4bf5-b8a7-c5d55be5e32a' ? 'creator_1' : 'creator_1';
+        revenueMap[cId] = (revenueMap[cId] || 0) + (p.amountPaid || 0);
+      });
+
+      const userShops: Record<string, any[]> = {};
+      creators.forEach(c => {
+        const rev = revenueMap[c.id] || 0;
+        if (!userShops[c.user_id]) {
+          userShops[c.user_id] = [];
+        }
+        userShops[c.user_id].push({
+          id: c.id,
+          username: c.username,
+          displayName: c.display_name,
+          revenue: rev
+        });
+      });
+
+      Object.entries(userShops).forEach(([userId, shops]) => {
+        if (shops.length > 1) {
+          let maxRevShop = shops[0];
+          shops.forEach(s => {
+            if (s.revenue > maxRevShop.revenue) {
+              maxRevShop = s;
+            }
+          });
+          topShopsForMultiShopUsers.push({
+            userId,
+            displayName: maxRevShop.displayName || 'Sans Nom',
+            username: maxRevShop.username,
+            revenue: maxRevShop.revenue,
+            totalShopsCount: shops.length
+          });
+        }
+      });
     }
 
     return res.json({
@@ -1706,6 +1913,10 @@ app.get('/api/admin/kpis', async (req, res) => {
       platformEarnings,
       totalVolume,
       pendingWithdrawals: pendingWithdrawalsCount,
+      uniqueUsersCount,
+      totalShopsCount,
+      avgShopsPerUser,
+      topShopsForMultiShopUsers,
       isDemoMode: !supabaseAdmin || usedFallback
     });
   } catch (err: any) {
@@ -1810,11 +2021,23 @@ app.get('/api/admin/creators', async (req, res) => {
       
       if (supabaseAdmin && !usedFallback) {
         try {
-          const { data: subs } = await supabaseAdmin
-            .from('subscriptions')
-            .select('end_date, status')
-            .eq('creator_id', creator.id)
-            .order('end_date', { ascending: false });
+          // Fetch all boutiques of this owner
+          const { data: userProfiles } = await supabaseAdmin
+            .from('creator_profiles')
+            .select('id, is_premium, premium_expires_at')
+            .eq('user_id', creator.user_id);
+          
+          const profileIds = (userProfiles || []).map(p => p.id);
+          
+          let subs: any[] = [];
+          if (profileIds.length > 0) {
+            const { data } = await supabaseAdmin
+              .from('subscriptions')
+              .select('end_date, status')
+              .in('creator_id', profileIds)
+              .order('end_date', { ascending: false });
+            subs = data || [];
+          }
 
           const latestSub = subs && subs[0];
           if (latestSub) {
@@ -1832,16 +2055,23 @@ app.get('/api/admin/creators', async (req, res) => {
             subscriptionExpiry = latestSub.end_date;
           }
 
-          // Override with manual premium status
-          if (creator.is_premium && activeSubStatus !== 'active') {
+          // Override with manual premium status of any profile belonging to this user
+          const anyPremiumProfile = (userProfiles || []).find(p => p.is_premium);
+          if (anyPremiumProfile && activeSubStatus !== 'active') {
             activeSubStatus = 'active';
-            subscriptionExpiry = creator.premium_expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+            subscriptionExpiry = anyPremiumProfile.premium_expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
           }
         } catch (subErr) {
           console.warn('[Server] Subscriptions query failed for creator', creator.id, subErr);
         }
       } else {
-        const subs = serverDb.getCreatorSubscriptions(creator.id);
+        // Fallback local DB
+        const userId = creator.user_id;
+        const localUserCreators = serverDb.getCreators().filter(c => c.user_id === userId);
+        let subs: any[] = [];
+        localUserCreators.forEach(c => {
+          subs = [...subs, ...serverDb.getCreatorSubscriptions(c.id)];
+        });
         const latestSub = subs.sort((a,b) => b.endDate.localeCompare(a.endDate))[0];
         if (latestSub) {
           const now = new Date();
@@ -1858,10 +2088,10 @@ app.get('/api/admin/creators', async (req, res) => {
           subscriptionExpiry = latestSub.endDate;
         }
 
-        // Override with manual premium status
-        if (creator.is_premium && activeSubStatus !== 'active') {
+        const anyPremiumLocal = localUserCreators.find(c => c.is_premium);
+        if (anyPremiumLocal && activeSubStatus !== 'active') {
           activeSubStatus = 'active';
-          subscriptionExpiry = creator.premium_expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+          subscriptionExpiry = anyPremiumLocal.premium_expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
         }
       }
 
@@ -1991,6 +2221,58 @@ app.post('/api/admin/creators/:id/toggle-status', async (req, res) => {
   } catch (err: any) {
     console.error('[Server] Toggle creator status error:', err);
     return res.status(500).json({ error: 'Erreur lors du changement de statut.' });
+  }
+});
+
+// 5b. POST /api/admin/creators/:id/update-quota -> Update the store quota for a user (all their shops)
+app.post('/api/admin/creators/:id/update-quota', async (req, res) => {
+  const { id } = req.params;
+  const { quota } = req.body;
+
+  if (typeof quota !== 'number' || quota < 1) {
+    return res.status(400).json({ error: 'Quota invalide.' });
+  }
+
+  try {
+    let currentCreator: any = null;
+    
+    if (supabaseAdmin) {
+      const { data, error } = await supabaseAdmin
+        .from('creator_profiles')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw error;
+      currentCreator = data;
+    } else {
+      currentCreator = serverDb.getCreators().find(c => c.id === id);
+    }
+
+    if (!currentCreator) {
+      return res.status(404).json({ error: 'Créateur introuvable.' });
+    }
+
+    const userId = currentCreator.user_id;
+
+    if (supabaseAdmin) {
+      const { error } = await supabaseAdmin
+        .from('creator_profiles')
+        .update({ store_quota: quota })
+        .eq('user_id', userId);
+      if (error) throw error;
+    } else {
+      // In mock DB, update all creators sharing the same user_id
+      serverDb.getCreators().forEach(c => {
+        if (c.user_id === userId) {
+          serverDb.updateCreator(c.id, { store_quota: quota });
+        }
+      });
+    }
+
+    return res.json({ success: true, quota });
+  } catch (err: any) {
+    console.error('[Server] Update quota error:', err);
+    return res.status(500).json({ error: 'Erreur lors de la mise à jour du quota.' });
   }
 });
 
@@ -2604,6 +2886,146 @@ app.get('/api/admin/recent-purchases', async (req, res) => {
   } catch (err: any) {
     console.error('[Server] Admin recent purchases error:', err);
     return res.status(500).json({ error: 'Erreur lors du chargement des transactions récentes.' });
+  }
+});
+
+
+// 13. GET /api/admin/contents -> list contents for moderation
+app.get('/api/admin/contents', async (req, res) => {
+  try {
+    const search = (req.query.search as string || '').toLowerCase();
+    const type = req.query.type as string || 'all';
+    const status = req.query.status as string || 'all';
+
+    let allContents: any[] = [];
+    let usedFallback = false;
+
+    if (supabaseAdmin) {
+      try {
+        const { data, error } = await supabaseAdmin
+          .from('contents')
+          .select('*, creator:creator_profiles(display_name, username, avatar_url)');
+        if (error) throw error;
+        allContents = data || [];
+      } catch (dbErr) {
+        console.warn('[Server] Supabase contents select failed, falling back to mock data:', dbErr);
+        usedFallback = true;
+      }
+    }
+
+    if (!supabaseAdmin || usedFallback) {
+      // In-memory or default mock contents
+      const localContents = [
+        {
+          id: 'con_1',
+          creator_id: 'creator_1',
+          title: 'Pack PDF : Booster son audience TikTok en 30 jours',
+          description: 'La méthode complète pour scaler son compte.',
+          price_fcfa: 2500,
+          content_type: 'pdf',
+          status: 'published',
+          is_published: true,
+          created_at: new Date(Date.now() - 3600000 * 240).toISOString(),
+          creator: { display_name: 'Michella Coaching', username: 'michella_coaching', avatar_url: null }
+        },
+        {
+          id: 'con_2',
+          creator_id: 'creator_1',
+          title: 'Template Notion : Organiser ses tournages Reels & TikTok',
+          description: 'Un espace de travail prêt à l\'emploi.',
+          price_fcfa: 1500,
+          content_type: 'pdf',
+          status: 'published',
+          is_published: true,
+          created_at: new Date(Date.now() - 3600000 * 120).toISOString(),
+          creator: { display_name: 'Michella Coaching', username: 'michella_coaching', avatar_url: null }
+        },
+        {
+          id: 'con_3',
+          creator_id: 'creator_1',
+          title: "Masterclass : Décryptage de l'Algorithme 2026 (Vidéo 20m)",
+          description: 'Vidéo exclusive pour comprendre l\'algo.',
+          price_fcfa: 5000,
+          content_type: 'video',
+          status: 'published',
+          is_published: true,
+          created_at: new Date(Date.now() - 3600000 * 72).toISOString(),
+          creator: { display_name: 'Michella Coaching', username: 'michella_coaching', avatar_url: null }
+        }
+      ];
+
+      allContents = localContents;
+    }
+
+    // Apply filters
+    const filtered = allContents.filter(c => {
+      const matchesSearch = 
+        !search || 
+        c.title.toLowerCase().includes(search) || 
+        (c.description && c.description.toLowerCase().includes(search)) ||
+        (c.creator && c.creator.display_name.toLowerCase().includes(search)) ||
+        (c.creator && c.creator.username.toLowerCase().includes(search));
+
+      const matchesType = type === 'all' || c.content_type === type;
+      const matchesStatus = status === 'all' || c.status === status;
+
+      return matchesSearch && matchesType && matchesStatus;
+    });
+
+    return res.json(filtered);
+  } catch (err: any) {
+    console.error('[Server] Admin contents list error:', err);
+    return res.status(500).json({ error: 'Erreur lors du chargement des contenus.' });
+  }
+});
+
+// 14. POST /api/admin/contents/:id/toggle-status -> Suspend, Approve or Archive a content item
+app.post('/api/admin/contents/:id/toggle-status', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body; // 'published' | 'draft' | 'archived' | 'removed'
+
+  if (!status || !['published', 'draft', 'archived', 'removed'].includes(status)) {
+    return res.status(400).json({ error: 'Statut de modération invalide.' });
+  }
+
+  try {
+    const isPublished = status === 'published';
+
+    if (supabaseAdmin) {
+      const { data, error } = await supabaseAdmin
+        .from('contents')
+        .update({ status, is_published: isPublished })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return res.json({ success: true, status: data.status, is_published: data.is_published });
+    }
+
+    return res.json({ success: true, status, is_published: isPublished });
+  } catch (err: any) {
+    console.error('[Server] Admin content toggle status error:', err);
+    return res.status(500).json({ error: 'Erreur lors du changement de statut du contenu.' });
+  }
+});
+
+// 15. DELETE /api/admin/contents/:id -> Delete content permanently
+app.delete('/api/admin/contents/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    if (supabaseAdmin) {
+      const { error } = await supabaseAdmin
+        .from('contents')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Server] Admin content delete error:', err);
+    return res.status(500).json({ error: 'Erreur lors de la suppression du contenu.' });
   }
 });
 

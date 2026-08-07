@@ -10,7 +10,9 @@ import {
   ExternalLink,
   Calendar,
   Wallet,
-  ShoppingBag
+  ShoppingBag,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -79,6 +81,52 @@ export default function AdminCreators() {
   const [creatorDetails, setCreatorDetails] = useState<CreatorDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [isTogglingStatus, setIsTogglingStatus] = useState<string | null>(null);
+
+  const [collapsedUsers, setCollapsedUsers] = useState<Record<string, boolean>>({});
+
+  const toggleUserCollapsed = (userId: string) => {
+    setCollapsedUsers(prev => ({
+      ...prev,
+      [userId]: !prev[userId]
+    }));
+  };
+
+  const [newQuotaValue, setNewQuotaValue] = useState<number>(2);
+  const [isUpdatingQuota, setIsUpdatingQuota] = useState(false);
+
+  // Group creators by user_id/email
+  const groupedCreators = React.useMemo(() => {
+    const groups: Record<string, {
+      userId: string;
+      email: string;
+      createdAt: string;
+      shops: Creator[];
+      totalRevenue: number;
+      totalContentCount: number;
+    }> = {};
+
+    creators.forEach(c => {
+      const key = c.user_id || c.email;
+      if (!groups[key]) {
+        groups[key] = {
+          userId: c.user_id || c.email,
+          email: c.email,
+          createdAt: c.created_at,
+          shops: [],
+          totalRevenue: 0,
+          totalContentCount: 0
+        };
+      }
+      groups[key].shops.push(c);
+      groups[key].totalRevenue += c.revenueGenerated || 0;
+      groups[key].totalContentCount += c.contentCount || 0;
+      if (new Date(c.created_at) < new Date(groups[key].createdAt)) {
+        groups[key].createdAt = c.created_at;
+      }
+    });
+
+    return Object.values(groups).sort((a, b) => b.totalRevenue - a.totalRevenue);
+  }, [creators]);
 
   useEffect(() => {
     fetchCreators();
@@ -165,12 +213,55 @@ export default function AdminCreators() {
       if (!res.ok) throw new Error('Erreur de détails.');
       const data = await res.json();
       setCreatorDetails(data);
+      setNewQuotaValue(data.creator.store_quota || 2);
     } catch (err) {
       console.error(err);
       setSelectedCreatorId(null);
       alert('Impossible de charger les détails du créateur.');
     } finally {
       setIsLoadingDetails(false);
+    }
+  };
+
+  const handleUpdateQuotaSubmit = async () => {
+    if (!selectedCreatorId || !creatorDetails) return;
+    try {
+      setIsUpdatingQuota(true);
+      const headers = await getHeaders();
+      const res = await fetch(`/api/admin/creators/${selectedCreatorId}/update-quota`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ quota: Number(newQuotaValue) })
+      });
+      if (!res.ok) throw new Error('Erreur lors de la mise à jour du quota.');
+      const result = await res.json();
+
+      // Update local state
+      setCreatorDetails(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          creator: {
+            ...prev.creator,
+            store_quota: result.quota
+          }
+        };
+      });
+
+      // Also update in creators list to reflect on table
+      setCreators(prev => prev.map(c => {
+        if (c.user_id === creatorDetails.creator.user_id) {
+          return { ...c, store_quota: result.quota };
+        }
+        return c;
+      }));
+
+      alert('Quota de boutiques mis à jour avec succès !');
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'Impossible de mettre à jour le quota.');
+    } finally {
+      setIsUpdatingQuota(false);
     }
   };
 
@@ -241,104 +332,159 @@ export default function AdminCreators() {
                     </td>
                   </tr>
                 ) : (
-                  creators.map((creator) => (
-                    <tr key={creator.id} className="hover:bg-bg-surface-hover/30 transition-colors">
-                      {/* Avatar / Username */}
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-accent-corail/15 flex-shrink-0 overflow-hidden border border-border-custom">
-                            {creator.avatar_url ? (
-                              <img 
-                                src={creator.avatar_url} 
-                                alt={creator.username} 
-                                className="w-full h-full object-cover"
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center font-bold text-accent-corail text-sm">
-                                {creator.display_name ? creator.display_name[0].toUpperCase() : creator.username[0].toUpperCase()}
+                  groupedCreators.map((group) => {
+                    const isCollapsed = !!collapsedUsers[group.userId];
+                    return (
+                      <React.Fragment key={group.userId}>
+                        {/* Row for Owner / User */}
+                        <tr className="bg-bg-primary/40 font-medium border-b border-border-custom/60">
+                          <td className="px-5 py-3 max-w-[280px]">
+                            <button
+                              onClick={() => toggleUserCollapsed(group.userId)}
+                              className="flex items-center gap-2 text-text-primary hover:text-accent-corail transition-colors font-semibold w-full text-left min-w-0"
+                            >
+                              <span className="flex-shrink-0">
+                                {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                              </span>
+                              <span className="truncate min-w-0" title={group.email}>
+                                {group.email}
+                              </span>
+                              <span className="flex-shrink-0 ml-1 text-[10px] bg-accent-corail/10 text-accent-corail border border-accent-corail/20 px-1.5 py-0.5 rounded-full font-normal">
+                                {group.shops.length} {group.shops.length > 1 ? 'boutiques' : 'boutique'}
+                              </span>
+                            </button>
+                          </td>
+                          <td className="px-5 py-3 text-xs text-text-secondary">
+                            Inscrit le {new Date(group.createdAt).toLocaleDateString('fr-FR')}
+                          </td>
+                          <td className="px-5 py-3"></td>
+                          <td className="px-5 py-3 text-center text-sm font-semibold text-text-secondary">
+                            {group.totalContentCount}
+                          </td>
+                          <td className="px-5 py-3 text-right text-sm font-bold text-text-secondary">
+                            {group.totalRevenue.toLocaleString()} FCFA
+                          </td>
+                          <td className="px-5 py-3"></td>
+                          <td className="px-5 py-3 text-right">
+                            <button
+                              onClick={() => toggleUserCollapsed(group.userId)}
+                              className="text-xs text-accent-corail hover:underline cursor-pointer"
+                            >
+                              {isCollapsed ? 'Développer' : 'Réduire'}
+                            </button>
+                          </td>
+                        </tr>
+
+                        {/* Rows for Boutiques / Shops under this Owner */}
+                        {!isCollapsed && group.shops.map((creator) => (
+                          <tr key={creator.id} className="bg-bg-surface hover:bg-bg-surface-hover/20 transition-colors">
+                            {/* Avatar / Username */}
+                            <td className="px-5 py-3.5 pl-10 border-l-2 border-accent-corail/30">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-accent-corail/10 flex-shrink-0 overflow-hidden border border-border-custom flex items-center justify-center">
+                                  {creator.avatar_url ? (
+                                    <img 
+                                      src={creator.avatar_url} 
+                                      alt={creator.username} 
+                                      className="w-full h-full object-cover"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center font-bold text-accent-corail text-xs">
+                                      {creator.display_name ? creator.display_name[0].toUpperCase() : creator.username[0].toUpperCase()}
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-text-primary text-sm leading-tight">{creator.display_name || 'Sans Nom'}</p>
+                                  <p className="text-xs text-text-secondary">@{creator.username}</p>
+                                </div>
                               </div>
-                            )}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-text-primary leading-tight">{creator.display_name || 'Sans Nom'}</p>
-                            <p className="text-xs text-text-secondary">@{creator.username}</p>
-                          </div>
-                        </div>
-                      </td>
+                            </td>
 
-                      {/* Contact Info */}
-                      <td className="px-5 py-3.5">
-                        <p className="text-sm text-text-primary font-mono leading-normal">{creator.email}</p>
-                        <p className="text-xs text-text-secondary leading-normal">Inscrit le {new Date(creator.created_at).toLocaleDateString('fr-FR')}</p>
-                      </td>
+                            {/* Contact Info (Operator & Phone) */}
+                            <td className="px-5 py-3.5">
+                              {creator.payout_phone_number ? (
+                                <div className="text-xs">
+                                  <span className="font-mono text-text-primary">{creator.payout_phone_number}</span>
+                                  <span className="ml-1 text-[10px] text-text-secondary uppercase">({creator.payout_provider})</span>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-text-secondary italic">Non configuré</span>
+                              )}
+                            </td>
 
-                      {/* Subscription Status */}
-                      <td className="px-5 py-3.5">
-                        <div className="space-y-1">
-                          {getSubStatusBadge(creator.subscriptionStatus)}
-                          {creator.subscriptionExpiry && (
-                            <p className="text-[10px] text-text-secondary">
-                              Exp: {new Date(creator.subscriptionExpiry).toLocaleDateString('fr-FR')}
-                            </p>
-                          )}
-                        </div>
-                      </td>
+                            {/* Subscription Status */}
+                            <td className="px-5 py-3.5">
+                              <div className="space-y-1">
+                                {getSubStatusBadge(creator.subscriptionStatus)}
+                                {creator.subscriptionExpiry && (
+                                  <p className="text-[10px] text-text-secondary">
+                                    Exp: {new Date(creator.subscriptionExpiry).toLocaleDateString('fr-FR')}
+                                  </p>
+                                )}
+                              </div>
+                            </td>
 
-                      {/* Published count */}
-                      <td className="px-5 py-3.5 text-center text-sm font-semibold text-text-primary">
-                        {creator.contentCount}
-                      </td>
+                            {/* Published count */}
+                            <td className="px-5 py-3.5 text-center text-sm font-semibold text-text-primary">
+                              {creator.contentCount}
+                            </td>
 
-                      {/* Cumulative revenue */}
-                      <td className="px-5 py-3.5 text-right text-sm font-bold text-accent-corail">
-                        {creator.revenueGenerated.toLocaleString()} FCFA
-                      </td>
+                            {/* Cumulative revenue */}
+                            <td className="px-5 py-3.5 text-right text-sm font-bold text-accent-corail font-mono">
+                              {creator.revenueGenerated.toLocaleString()} FCFA
+                            </td>
 
-                      {/* Account status */}
-                      <td className="px-5 py-3.5 text-center">
-                        {creator.status === 'active' ? (
-                          <span className="bg-[#E8F5E9] text-[#2E7D32] border border-[#C8E6C9] text-[10px] font-semibold px-2 py-0.5 rounded">Actif</span>
-                        ) : (
-                          <span className="bg-[#FFEBEE] text-[#C62828] border border-[#FFCDD2] text-[10px] font-semibold px-2 py-0.5 rounded">Suspendu</span>
-                        )}
-                      </td>
+                            {/* Account status */}
+                            <td className="px-5 py-3.5 text-center">
+                              {creator.status === 'active' ? (
+                                <span className="bg-[#E8F5E9] text-[#2E7D32] border border-[#C8E6C9] text-[10px] font-semibold px-2 py-0.5 rounded">Actif</span>
+                              ) : (
+                                <span className="bg-[#FFEBEE] text-[#C62828] border border-[#FFCDD2] text-[10px] font-semibold px-2 py-0.5 rounded">Suspendu</span>
+                              )}
+                            </td>
 
-                      {/* Quick action buttons */}
-                      <td className="px-5 py-3.5 text-right space-x-2">
-                        <button
-                          onClick={() => handleViewDetails(creator.id)}
-                          className="bg-bg-primary/60 text-text-secondary hover:text-text-primary border border-border-custom hover:bg-bg-surface-hover p-2 rounded-lg transition-all"
-                          title="Consulter les détails"
-                          id={`btn-view-${creator.id}`}
-                        >
-                          <Eye size={15} />
-                        </button>
-                        
-                        <button
-                          onClick={() => handleToggleStatus(creator.id)}
-                          disabled={isTogglingStatus === creator.id}
-                          className={`
-                            p-2 rounded-lg border transition-all
-                            ${creator.status === 'active'
-                              ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 hover:text-red-700'
-                              : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100 hover:text-emerald-700'
-                            }
-                          `}
-                          title={creator.status === 'active' ? 'Suspendre le créateur' : 'Réactiver le créateur'}
-                          id={`btn-toggle-${creator.id}`}
-                        >
-                          {isTogglingStatus === creator.id ? (
-                            <Loader2 size={15} className="animate-spin" />
-                          ) : creator.status === 'active' ? (
-                            <UserX size={15} />
-                          ) : (
-                            <UserCheck size={15} />
-                          )}
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                            {/* Quick action buttons */}
+                            <td className="px-5 py-3.5">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => handleViewDetails(creator.id)}
+                                  className="bg-bg-primary/60 text-text-secondary hover:text-text-primary border border-border-custom hover:bg-bg-surface-hover p-2 rounded-lg transition-all flex items-center justify-center cursor-pointer shrink-0"
+                                  title="Consulter les détails"
+                                  id={`btn-view-${creator.id}`}
+                                >
+                                  <Eye size={15} />
+                                </button>
+                                
+                                <button
+                                  onClick={() => handleToggleStatus(creator.id)}
+                                  disabled={isTogglingStatus === creator.id}
+                                  className={`
+                                    p-2 rounded-lg border transition-all flex items-center justify-center cursor-pointer shrink-0
+                                    ${creator.status === 'active'
+                                      ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 hover:text-red-700'
+                                      : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100 hover:text-emerald-700'
+                                    }
+                                  `}
+                                  title={creator.status === 'active' ? 'Suspendre le créateur' : 'Réactiver le créateur'}
+                                  id={`btn-toggle-${creator.id}`}
+                                >
+                                  {isTogglingStatus === creator.id ? (
+                                    <Loader2 size={15} className="animate-spin" />
+                                  ) : creator.status === 'active' ? (
+                                    <UserX size={15} />
+                                  ) : (
+                                    <UserCheck size={15} />
+                                  )}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -410,7 +556,7 @@ export default function AdminCreators() {
                       <Coins className="w-3.5 h-3.5 text-accent-corail" />
                       Solde disponible
                     </span>
-                    <p className="text-lg font-bold text-accent-corail mt-1 font-mono">{creatorDetails.balance.toLocaleString()} FCFA</p>
+                    <p className="text-lg font-bold text-accent-corail mt-1 font-mono">{(creatorDetails.balance || 0).toLocaleString()} FCFA</p>
                     <span className="text-[9px] text-text-secondary">Retirable en temps réel</span>
                   </div>
 
@@ -419,7 +565,7 @@ export default function AdminCreators() {
                       <ShoppingBag className="w-3.5 h-3.5 text-emerald-600" />
                       Revenus générés
                     </span>
-                    <p className="text-lg font-bold text-emerald-600 mt-1 font-mono">{creatorDetails.creator.revenueGenerated.toLocaleString()} FCFA</p>
+                    <p className="text-lg font-bold text-emerald-600 mt-1 font-mono">{(creatorDetails.creator.revenueGenerated || 0).toLocaleString()} FCFA</p>
                     <span className="text-[9px] text-text-secondary">Total cumulé ventes</span>
                   </div>
                 </div>
@@ -435,6 +581,35 @@ export default function AdminCreators() {
                     <span className="text-text-secondary">Téléphone de paiement :</span>
                     <span className="font-semibold text-text-primary font-mono">{creatorDetails.creator.payout_phone_number || 'Non configuré'}</span>
                   </div>
+                </div>
+
+                {/* Quota de boutiques */}
+                <div className="p-4 rounded-xl bg-bg-primary/40 border border-border-custom space-y-3">
+                  <h5 className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Limite de boutiques (Quota)</h5>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={newQuotaValue}
+                      onChange={(e) => setNewQuotaValue(Math.max(1, Number(e.target.value)))}
+                      className="w-20 bg-bg-surface border border-border-custom rounded-lg px-3 py-1.5 text-sm text-text-primary text-center focus:outline-none focus:border-accent-corail font-semibold font-mono"
+                    />
+                    <button
+                      onClick={handleUpdateQuotaSubmit}
+                      disabled={isUpdatingQuota}
+                      className="flex-1 bg-accent-corail hover:bg-accent-corail/90 disabled:bg-accent-corail/50 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      {isUpdatingQuota ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : (
+                        <span>Mettre à jour le quota</span>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-text-secondary">
+                    Ce quota détermine le nombre maximal de boutiques que cet utilisateur est autorisé à créer. Par défaut, la limite est de 2.
+                  </p>
                 </div>
 
                 {/* Recent Purchases */}

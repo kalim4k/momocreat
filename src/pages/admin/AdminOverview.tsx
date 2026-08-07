@@ -25,6 +25,17 @@ interface KPIs {
   platformEarnings: number;
   totalVolume: number;
   pendingWithdrawals: number;
+  uniqueUsersCount?: number;
+  totalShopsCount?: number;
+  avgShopsPerUser?: number;
+  topShopsForMultiShopUsers?: {
+    userId: string;
+    displayName: string;
+    username: string;
+    revenue: number;
+    totalShopsCount: number;
+  }[];
+  isDemoMode?: boolean;
 }
 
 interface ChartItem {
@@ -205,6 +216,31 @@ export default function AdminOverview() {
         })}
       </div>
 
+      {/* Multi-Boutiques Analytics Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="bg-bg-surface border border-border-custom rounded-xl p-5 shadow-sm flex items-center justify-between">
+          <div className="space-y-1">
+            <span className="text-xs text-text-secondary font-medium tracking-wide uppercase">Utilisateurs Uniques</span>
+            <p className="text-xl md:text-2xl font-bold text-accent-corail tracking-tight">{kpis?.uniqueUsersCount || 0}</p>
+            <span className="text-[11px] text-text-secondary block">Comptes propriétaires uniques</span>
+          </div>
+        </div>
+        <div className="bg-bg-surface border border-border-custom rounded-xl p-5 shadow-sm flex items-center justify-between">
+          <div className="space-y-1">
+            <span className="text-xs text-text-secondary font-medium tracking-wide uppercase">Nombre total de boutiques</span>
+            <p className="text-xl md:text-2xl font-bold text-accent-corail tracking-tight">{kpis?.totalShopsCount || 0}</p>
+            <span className="text-[11px] text-text-secondary block">Toutes boutiques confondues</span>
+          </div>
+        </div>
+        <div className="bg-bg-surface border border-border-custom rounded-xl p-5 shadow-sm flex items-center justify-between">
+          <div className="space-y-1">
+            <span className="text-xs text-text-secondary font-medium tracking-wide uppercase">Boutiques par utilisateur</span>
+            <p className="text-xl md:text-2xl font-bold text-accent-corail tracking-tight">{kpis?.avgShopsPerUser || 0}</p>
+            <span className="text-[11px] text-text-secondary block">Moyenne de boutiques créées par compte</span>
+          </div>
+        </div>
+      </div>
+
       {/* Revenue Graph & Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Graph */}
@@ -303,6 +339,52 @@ export default function AdminOverview() {
               <span>Base de données connectée</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Top Performing Multi-Shop Owner Boutiques */}
+      <div className="bg-bg-surface border border-border-custom rounded-xl overflow-hidden shadow-sm">
+        <div className="px-5 py-4 border-b border-border-custom">
+          <h3 className="font-semibold text-text-primary">Boutiques les plus performantes (Multi-Boutiques)</h3>
+          <p className="text-xs text-text-secondary mt-0.5">La boutique la plus performante en termes de volume de transactions pour chaque propriétaire possédant plusieurs boutiques.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-bg-primary border-b border-border-custom">
+                <th className="px-5 py-3.5 text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Propriétaire</th>
+                <th className="px-5 py-3.5 text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Boutique la plus performante</th>
+                <th className="px-5 py-3.5 text-[11px] font-semibold text-text-secondary uppercase tracking-wider text-center">Boutiques possédées</th>
+                <th className="px-5 py-3.5 text-[11px] font-semibold text-text-secondary uppercase tracking-wider text-right">Chiffre d'Affaires</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-custom">
+              {!kpis?.topShopsForMultiShopUsers || kpis.topShopsForMultiShopUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-5 py-8 text-center text-text-secondary text-sm">
+                    Aucun créateur multi-boutique enregistré avec des ventes.
+                  </td>
+                </tr>
+              ) : (
+                kpis.topShopsForMultiShopUsers.map((item) => (
+                  <tr key={item.userId} className="hover:bg-bg-surface-hover/30 transition-colors">
+                    <td className="px-5 py-3.5 text-sm text-text-primary">
+                      Propriétaire ID: <span className="font-mono text-xs text-text-secondary">@{item.username.split('_')[0] || item.username}</span>
+                    </td>
+                    <td className="px-5 py-3.5 text-sm text-text-primary font-semibold">
+                      {item.displayName} <span className="text-xs text-text-secondary font-normal font-mono">(@{item.username})</span>
+                    </td>
+                    <td className="px-5 py-3.5 text-sm text-text-secondary font-semibold font-mono text-center">
+                      {item.totalShopsCount}
+                    </td>
+                    <td className="px-5 py-3.5 text-sm font-bold text-accent-corail font-mono text-right">
+                      {item.revenue.toLocaleString()} FCFA
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 

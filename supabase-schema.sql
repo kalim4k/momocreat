@@ -4,7 +4,7 @@
 -- 1. Table des profils de createurs
 CREATE TABLE IF NOT EXISTS public.creator_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE NOT NULL,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
     username VARCHAR(30) UNIQUE NOT NULL,
     display_name VARCHAR(50) NOT NULL,
     bio VARCHAR(160),
@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS public.creator_profiles (
     status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
     is_premium BOOLEAN DEFAULT false NOT NULL,
     premium_expires_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    store_quota INT DEFAULT 2 NOT NULL
 );
 
 -- Activez Row Level Security pour la securite
@@ -240,6 +241,7 @@ CREATE POLICY "creators see own subscriptions"
 ALTER TABLE public.creator_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE public.creator_profiles ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT false NOT NULL;
 ALTER TABLE public.creator_profiles ADD COLUMN IF NOT EXISTS premium_expires_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.creator_profiles ADD COLUMN IF NOT EXISTS store_quota INT DEFAULT 2 NOT NULL;
 
 -- 2. Configuration du bucket de stockage 'avatars' (Supabase Storage)
 INSERT INTO storage.buckets (id, name, public)

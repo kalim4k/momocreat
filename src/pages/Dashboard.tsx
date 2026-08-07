@@ -8,14 +8,25 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { getSupabaseClient } from '../lib/supabase';
+import { 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  ResponsiveContainer,
+  CartesianGrid
+} from 'recharts';
 import { Content } from '../types';
 import { 
   Home, 
   Grid, 
   Wallet, 
   User, 
-  LogOut, 
+  LogOut,
+  Bell, 
   Plus, 
+  ChevronsUpDown,
   TrendingUp, 
   CheckCircle2, 
   CreditCard, 
@@ -42,7 +53,13 @@ import {
   Store,
   Copy,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Menu,
+  Search,
+  Filter,
+  Crown,
+  PanelLeftClose,
+  PanelLeftOpen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -160,16 +177,17 @@ const SEEDED_WITHDRAWALS_MOCK = (creatorId: string) => [
 export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, profile, loading: authLoading, signOut, isDemoMode } = useAuth();
+  const { user, profile, allProfiles, loading: authLoading, signOut, isDemoMode, switchProfile, createAdditionalProfile } = useAuth();
   const { isDarkMode, setIsDarkMode, styles: themeStyles } = useTheme();
 
   // Determine active view based on current route
-  const getActiveTab = (): 'content' | 'withdrawals' | 'profile' | 'subscription' | 'home' => {
+  const getActiveTab = (): 'content' | 'withdrawals' | 'profile' | 'subscription' | 'home' | 'sales' => {
     const path = location.pathname;
     if (path.includes('/content')) return 'content';
     if (path.includes('/withdrawals')) return 'withdrawals';
     if (path.includes('/profile')) return 'profile';
     if (path.includes('/subscription')) return 'subscription';
+    if (path.includes('/sales')) return 'sales';
     return 'home';
   };
 
@@ -186,6 +204,14 @@ export default function Dashboard() {
     }
   }, [user, profile, authLoading, navigate]);
 
+  // Multi-boutique switcher states
+  const [isSwitchModalOpen, setIsSwitchModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newStoreName, setNewStoreName] = useState('');
+  const [newStoreSlug, setNewStoreSlug] = useState('');
+  const [createStoreError, setCreateStoreError] = useState<string | null>(null);
+  const [isCreatingStore, setIsCreatingStore] = useState(false);
+
   // Statistics State
   const [stats, setStats] = useState({
     monthlyEarnings: 0,
@@ -193,6 +219,88 @@ export default function Dashboard() {
     totalEarnings: 0,
     publishedContentsCount: 0
   });
+
+  const [salesSearch, setSalesSearch] = useState('');
+  const [salesStatus, setSalesStatus] = useState('all');
+
+  // Helper to format date for chart (last 30 days)
+  const getChartData = () => {
+    const days = [];
+    const now = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(now.getDate() - i);
+      const dateStr = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+      const keyDate = d.toISOString().split('T')[0];
+      days.push({ date: dateStr, keyDate, revenu: 0, ventes: 0 });
+    }
+
+    purchasesList.forEach(p => {
+      const dateRaw = p.created_at || p.createdAt;
+      if (!dateRaw) return;
+      const pDate = dateRaw.split('T')[0];
+      const match = days.find(day => day.keyDate === pDate);
+      if (match) {
+        match.revenu += p.creator_net_amount_fcfa || p.amount_paid_fcfa || 0;
+        match.ventes += 1;
+      }
+    });
+
+    return days;
+  };
+
+  const handleCreateStoreSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateStoreError(null);
+    setIsCreatingStore(true);
+
+    try {
+      if (!newStoreName.trim()) {
+        throw new Error("Le nom de la boutique est obligatoire.");
+      }
+      if (!newStoreSlug.trim()) {
+        throw new Error("L'identifiant unique (URL) est obligatoire.");
+      }
+      if (newStoreSlug.length < 3) {
+        throw new Error("L'identifiant doit comporter au moins 3 caractères.");
+      }
+
+      // Quota check
+      const currentQuota = Math.max(...allProfiles.map(p => p.store_quota || 2), 2);
+      if (allProfiles.length >= currentQuota) {
+        throw new Error(`Vous avez atteint votre quota maximum de boutiques (${currentQuota}). Contactez l'administrateur pour l'augmenter.`);
+      }
+
+      // Check unique
+      const isUnique = await checkUsernameUnique(newStoreSlug.trim());
+      if (!isUnique) {
+        throw new Error("Cet identifiant est déjà utilisé par un autre créateur.");
+      }
+
+      // Create profile
+      const res = await createAdditionalProfile({
+        user_id: user?.id || "",
+        username: newStoreSlug.trim().toLowerCase(),
+        display_name: newStoreName.trim(),
+        bio: "",
+        payout_phone_number: profile?.payout_phone_number || "",
+        payout_provider: profile?.payout_provider || null
+      });
+
+      if (res.success) {
+        setIsCreateModalOpen(false);
+        setIsSwitchModalOpen(false);
+        setNewStoreName('');
+        setNewStoreSlug('');
+      } else {
+        throw new Error(res.error || "Une erreur s'est produite.");
+      }
+    } catch (err: any) {
+      setCreateStoreError(err.message || "Erreur de création.");
+    } finally {
+      setIsCreatingStore(false);
+    }
+  };
 
   // ==========================================
   // STEP 5: STATE & HANDLERS FOR CONTENT TAB
@@ -245,8 +353,14 @@ export default function Dashboard() {
   const [copied, setCopied] = useState(false);
   const [profileCopied, setProfileCopied] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem('momo_sidebar_collapsed') === 'true');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [profileErrorMsg, setProfileErrorMsg] = useState<string | null>(null);
   const [profileSuccessMsg, setProfileSuccessMsg] = useState<string | null>(null);
+
+  // Close mobile sidebar on route change
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [location.pathname]);
 
   // Auto-dismiss profile success and error messages
   useEffect(() => {
@@ -992,8 +1106,8 @@ export default function Dashboard() {
       setErrorMsg("Le fichier principal est obligatoire.");
       return;
     }
-    if (!priceFcfa || Number(priceFcfa) < 100) {
-      setErrorMsg("Le prix est obligatoire et doit être d'au moins 100 FCFA.");
+    if (!priceFcfa || Number(priceFcfa) < 1000) {
+      setErrorMsg("Le prix est obligatoire et doit être d'au moins 1000 FCFA.");
       return;
     }
 
@@ -1137,9 +1251,10 @@ export default function Dashboard() {
   const navItems = [
     { id: 'home', label: 'Tableau de bord', icon: Home, path: '/dashboard' },
     { id: 'content', label: 'Mon contenu', icon: Grid, path: '/dashboard/content' },
+    { id: 'sales', label: 'Mes ventes', icon: ShoppingBag, path: '/dashboard/sales' },
     { id: 'withdrawals', label: 'Retraits', icon: Wallet, path: '/dashboard/withdrawals' },
     { id: 'profile', label: 'Mon profil', icon: User, path: '/dashboard/profile' },
-    { id: 'subscription', label: 'Abonnement', icon: Sparkles, path: '/dashboard/subscription' },
+    { id: 'subscription', label: 'Abonnement', icon: Crown, path: '/dashboard/subscription' },
     ...(isAdmin ? [{ id: 'admin', label: 'Administration', icon: Shield, path: '/admin' }] : []),
   ];
 
@@ -1160,16 +1275,37 @@ export default function Dashboard() {
     }
   };
 
+  const filteredSalesList = purchasesList.filter(p => {
+    const title = p.contents?.title || p.title || 'Guide exclusif';
+    const matchesSearch = 
+      !salesSearch || 
+      title.toLowerCase().includes(salesSearch.toLowerCase()) ||
+      p.buyer_phone?.toLowerCase().includes(salesSearch.toLowerCase()) ||
+      p.payment_reference?.toLowerCase().includes(salesSearch.toLowerCase());
+      
+    const matchesStatus = salesStatus === 'all' || p.status === salesStatus;
+    return matchesSearch && matchesStatus;
+  });
+
+  const totalSalesCount = filteredSalesList.length;
+  const totalBrutRevenue = filteredSalesList.reduce((sum, p) => sum + (p.amount_paid_fcfa || p.amount || 0), 0);
+  const totalNetRevenue = filteredSalesList.reduce((sum, p) => sum + (p.creator_net_amount_fcfa || 0), 0);
+  const averageOrderValue = totalSalesCount > 0 ? Math.round(totalNetRevenue / totalSalesCount) : 0;
+
   return (
     <div className={`min-h-screen ${themeStyles.bg} ${themeStyles.textPrimary} flex flex-col md:flex-row font-sans transition-colors duration-200`}>
       
       {/* 1. Sidebar - Fixed Left on Desktop */}
-      <aside className={`hidden md:flex flex-col ${isSidebarCollapsed ? 'w-20 p-4' : 'w-64 p-6'} ${themeStyles.surface} border-r ${themeStyles.border} h-screen sticky top-0 justify-between shrink-0 transition-all duration-300 ease-in-out z-50`}>
+      <aside className={`hidden md:flex flex-col ${isSidebarCollapsed ? 'w-20 p-4' : 'w-64 p-6'} ${themeStyles.surface} h-screen sticky top-0 justify-between shrink-0 transition-all duration-300 ease-in-out z-50`}>
         <div className="flex flex-col gap-8">
           {/* Logo Brand Header */}
           <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0' : 'gap-2 px-2'} transition-all duration-300`}>
-            <div className="w-8 h-8 rounded-full bg-accent-corail flex items-center justify-center shrink-0">
-              <Sparkles size={16} className="text-white" />
+            <div className="w-8 h-8 flex items-center justify-center shrink-0">
+              <img 
+                src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
+                alt="MomoLink Logo" 
+                className="w-8 h-8 object-contain rounded-lg shadow-sm"
+              />
             </div>
             {!isSidebarCollapsed && (
               <span className={`font-display font-bold text-lg ${themeStyles.textPrimary} tracking-tight whitespace-nowrap overflow-hidden transition-all duration-300`}>
@@ -1177,6 +1313,8 @@ export default function Dashboard() {
               </span>
             )}
           </div>
+
+
 
           {/* Navigation Links */}
           <nav className="flex flex-col gap-1.5">
@@ -1264,10 +1402,10 @@ export default function Dashboard() {
             title={isSidebarCollapsed ? "Développer le menu" : "Réduire le menu"}
           >
             {isSidebarCollapsed ? (
-              <ChevronRight size={16} className="shrink-0" />
+              <PanelLeftOpen size={16} className="shrink-0" />
             ) : (
               <>
-                <ChevronLeft size={16} className="shrink-0" />
+                <PanelLeftClose size={16} className="shrink-0" />
                 <span>Réduire le menu</span>
               </>
             )}
@@ -1280,35 +1418,55 @@ export default function Dashboard() {
         
         {/* Global Dashboard Top Header */}
         <header className={`flex items-center justify-between ${themeStyles.surface} border-b ${themeStyles.border} px-4 md:px-8 py-3.5 sticky top-0 z-40 transition-colors duration-200 shadow-sm`}>
-          {/* Left part: Brand on mobile, Navigation Page Title on desktop */}
+          {/* Left part: Store Switcher Dropdown */}
           <div className="flex items-center gap-3">
-            {/* Mobile Brand */}
-            <div className="md:hidden flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-accent-corail flex items-center justify-center">
-                <Sparkles size={13} className="text-white" />
+
+            {/* Store Switcher Trigger Button */}
+            <button
+              onClick={() => setIsSwitchModalOpen(true)}
+              className={`flex items-center justify-between gap-2 px-4 py-2 rounded-xl border ${themeStyles.border} ${themeStyles.surface} hover:bg-neutral-800/5 dark:hover:bg-white/5 transition-all cursor-pointer text-left shadow-sm group w-[180px] sm:w-[220px]`}
+            >
+              <div className="flex items-center gap-2 overflow-hidden w-full justify-between">
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <Store size={14} className="text-accent-corail shrink-0" />
+                  <span className={`font-bold ${themeStyles.textPrimary} truncate text-xs`}>
+                    {displayName}
+                  </span>
+                </div>
+                <ChevronsUpDown size={12} className="text-gray-400 group-hover:text-accent-corail transition-colors shrink-0" />
               </div>
-              <span className={`font-display font-bold text-sm ${themeStyles.textPrimary} tracking-tight`}>
-                MomoLink <span className="text-accent-corail text-xs font-semibold">Pro</span>
-              </span>
+            </button>
+          </div>
+
+          {/* Middle part: Search Bar (Desktop/Tablet optimized) */}
+          <div className="hidden md:flex items-center relative w-full max-w-[200px] lg:max-w-sm mx-4">
+            <Search size={14} className="absolute left-3.5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Trouvez n'importe quoi : Appuyez sur ⌘K"
+              className={`w-full pl-9 pr-12 py-2 rounded-xl text-xs border ${themeStyles.border} bg-neutral-50/50 dark:bg-neutral-900/10 focus:border-accent-corail outline-none transition-all`}
+            />
+            <div className={`absolute right-2 px-1.5 py-0.5 rounded border ${themeStyles.border} bg-neutral-100 dark:bg-neutral-800 text-[9px] font-mono text-neutral-400`}>
+              ⌘K
             </div>
           </div>
 
           {/* Right Side: Actions (Visiter le profil, copy link, and profile button) */}
           <div className="flex items-center gap-2.5">
             {/* "Visiter le profil" Action Button with Copy Button inside a stylish Group */}
-            <div className={`flex items-center rounded-xl overflow-hidden border ${themeStyles.border} ${isDarkMode ? 'bg-neutral-900/40' : 'bg-gray-50/50'} p-0.5 shadow-sm`}>
+            <div className={`flex items-center rounded-xl overflow-hidden border ${themeStyles.border} ${isDarkMode ? 'bg-neutral-900/40' : 'bg-gray-50/50'} p-0.5 shadow-sm shrink-0`}>
               <a
                 href={`/@${username}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold ${themeStyles.textPrimary} hover:bg-accent-corail hover:text-white transition-all duration-150 cursor-pointer`}
+                className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold ${themeStyles.textPrimary} hover:bg-accent-corail hover:text-white transition-all duration-150 cursor-pointer whitespace-nowrap`}
               >
-                <Store size={14} />
-                <span className="hidden sm:inline">Visiter ma boutique</span>
-                <span className="sm:hidden">Ma boutique</span>
+                <Store size={14} className="shrink-0" />
+                <span className="hidden sm:inline whitespace-nowrap">Visiter ma boutique</span>
+                <span className="sm:hidden whitespace-nowrap">Ma boutique</span>
               </a>
               
-              <div className={`w-px h-5 ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-200'}`} />
+              <div className={`w-px h-5 ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-200'} shrink-0`} />
               
               <button
                 onClick={() => {
@@ -1317,13 +1475,13 @@ export default function Dashboard() {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 2000);
                 }}
-                className={`p-1.5 rounded-lg ${themeStyles.textSecondary} hover:text-accent-corail transition-all hover:bg-neutral-800/10 dark:hover:bg-neutral-800/50 cursor-pointer flex items-center justify-center`}
+                className={`p-1.5 rounded-lg ${themeStyles.textSecondary} hover:text-accent-corail transition-all hover:bg-neutral-800/10 dark:hover:bg-neutral-800/50 cursor-pointer flex items-center justify-center shrink-0`}
                 title="Copier le lien"
               >
                 {copied ? (
-                  <CheckCircle2 size={14} className="text-emerald-500" />
+                  <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
                 ) : (
-                  <Copy size={14} />
+                  <Copy size={14} className="shrink-0" />
                 )}
               </button>
             </div>
@@ -1350,10 +1508,9 @@ export default function Dashboard() {
 
         {/* 3. Mobile Bottom Navigation Bar */}
         <nav className={`md:hidden fixed bottom-0 left-0 right-0 ${themeStyles.surface} border-t ${themeStyles.border} px-4 py-2 flex justify-around items-center z-50 shadow-lg transition-colors duration-200`}>
-          {navItems.map((item) => {
+          {navItems.filter(item => ['home', 'content', 'withdrawals'].includes(item.id)).map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
-            const showDot = item.id === 'subscription' && isSubActionRequired();
             return (
               <Link
                 key={item.id}
@@ -1362,24 +1519,152 @@ export default function Dashboard() {
                   isActive ? 'text-accent-corail font-semibold' : themeStyles.textSecondary
                 }`}
               >
-                <div className="relative">
-                  <Icon size={18} />
-                  {showDot && (
-                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-                  )}
-                </div>
-                <span className="text-[9px] uppercase tracking-wider font-semibold">{item.label.split(' ')[0]}</span>
+                <Icon size={18} />
+                <span className="text-[9px] uppercase tracking-wider font-semibold">
+                  {item.id === 'home' ? 'Accueil' : item.id === 'content' ? 'Contenu' : 'Retraits'}
+                </span>
               </Link>
             );
           })}
           <button
-            onClick={handleSignOut}
-            className="flex flex-col items-center gap-1 p-2 text-red-400"
+            onClick={() => setIsMobileMenuOpen(true)}
+            className={`flex flex-col items-center gap-1 p-2 transition-colors duration-200 relative cursor-pointer ${
+              ['profile', 'subscription', 'admin'].includes(activeTab) 
+                ? 'text-accent-corail font-semibold' 
+                : themeStyles.textSecondary
+            }`}
           >
-            <LogOut size={18} />
-            <span className="text-[9px] uppercase tracking-wider font-semibold">Quitter</span>
+            <div className="relative">
+              <Menu size={18} />
+              {isSubActionRequired() && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              )}
+            </div>
+            <span className="text-[9px] uppercase tracking-wider font-semibold">MENU</span>
           </button>
         </nav>
+
+        {/* Mobile Left Sidebar Drawer */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
+            <>
+              {/* Backdrop */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="md:hidden fixed inset-0 bg-black/60 z-[55] backdrop-blur-xs"
+              />
+
+              {/* Drawer Container */}
+              <motion.aside
+                initial={{ x: '-100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '-100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+                className={`md:hidden fixed inset-y-0 left-0 w-72 max-w-[80vw] ${themeStyles.surface} border-r ${themeStyles.border} h-full z-[60] p-6 flex flex-col justify-between shadow-2xl text-left`}
+              >
+                <div className="flex flex-col gap-6">
+                  {/* Drawer Header */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-accent-corail flex items-center justify-center">
+                        <Sparkles size={15} className="text-white" />
+                      </div>
+                      <span className={`font-display font-bold text-base ${themeStyles.textPrimary} tracking-tight`}>
+                        MomoLink <span className="text-accent-corail text-xs font-semibold">Pro</span>
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className={`p-1.5 rounded-full border ${themeStyles.border} ${themeStyles.textSecondary} hover:text-accent-corail transition-colors cursor-pointer`}
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+
+
+
+                  {/* Creator Info Profile Card */}
+                  <div className={`flex items-center gap-3 p-3 rounded-2xl border ${themeStyles.border} ${isDarkMode ? 'bg-neutral-900/40' : 'bg-gray-50/50'}`}>
+                    <div 
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        navigate('/dashboard/profile');
+                      }}
+                      className="w-10 h-10 rounded-full bg-accent-corail/15 flex items-center justify-center border border-accent-corail/25 overflow-hidden shrink-0 cursor-pointer"
+                    >
+                      {profile?.avatar_url ? (
+                        <img 
+                          src={profile.avatar_url} 
+                          alt={displayName} 
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="font-display text-sm font-semibold text-accent-corail uppercase">
+                          {displayName.substring(0, 2)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className={`text-xs font-semibold ${themeStyles.textPrimary} truncate`}>{displayName}</span>
+                      <span className={`text-[10px] ${themeStyles.textSecondary} truncate`}>@{username}</span>
+                    </div>
+                  </div>
+
+                  {/* Navigation Links inside Drawer */}
+                  <nav className="flex flex-col gap-1.5 mt-2">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 mb-1">
+                      Menu de navigation
+                    </span>
+                    
+                    {navItems.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = activeTab === item.id;
+                      const showDot = item.id === 'subscription' && isSubActionRequired();
+                      return (
+                        <Link
+                          key={item.id}
+                          to={item.path}
+                          onClick={() => setIsMobileMenuOpen(false)}
+                          className={`flex items-center justify-between px-4 py-3 rounded-[12px] text-xs font-semibold transition-all duration-200 ${
+                            isActive 
+                              ? 'bg-accent-corail/10 text-accent-corail border border-accent-corail/15' 
+                              : `${themeStyles.textSecondary} hover:text-text-primary ${themeStyles.hoverBg} border border-transparent`
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Icon size={16} />
+                            <span>{item.label}</span>
+                          </div>
+                          {showDot && (
+                            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                          )}
+                        </Link>
+                      );
+                    })}
+                  </nav>
+                </div>
+
+                {/* LogOut action inside Drawer */}
+                <div className={`pt-4 border-t ${themeStyles.border}`}>
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      handleSignOut();
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-[12px] text-xs font-semibold text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                  >
+                    <LogOut size={16} />
+                    <span>Déconnexion</span>
+                  </button>
+                </div>
+              </motion.aside>
+            </>
+          )}
+        </AnimatePresence>
 
         {/* 4. Main Dashboard Content Area */}
         <main className="flex-1 p-6 md:p-10 pb-24 md:pb-10 overflow-y-auto max-w-6xl mx-auto w-full">
@@ -1477,6 +1762,78 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Graphique d'évolution des ventes */}
+            <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 md:p-6 rounded-[20px] shadow-sm`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
+                <div>
+                  <h3 className={`font-display text-lg font-semibold ${themeStyles.textPrimary} tracking-tight`}>
+                    Évolution des revenus
+                  </h3>
+                  <p className={`text-xs ${themeStyles.textSecondary}`}>
+                    Revenus nets créateur accumulés au cours des 30 derniers jours
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-accent-corail/10 text-accent-corail w-fit">
+                  <span className="w-2 h-2 rounded-full bg-accent-corail animate-pulse" />
+                  Données en temps réel
+                </div>
+              </div>
+              
+              <div className="h-[220px] w-full mt-2 font-sans text-[10px]">
+                {purchasesList.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center gap-2 py-8">
+                    <TrendingUp size={24} className={`${themeStyles.textSecondary} opacity-40`} />
+                    <span className={`text-xs ${themeStyles.textSecondary}`}>Aucune donnée de transaction disponible</span>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart
+                      data={getChartData()}
+                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient id="colorRevenu" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#FF5252" stopOpacity={0.2}/>
+                          <stop offset="95%" stopColor="#FF5252" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#33302c' : '#e5e5e0'} />
+                      <XAxis 
+                        dataKey="date" 
+                        tickLine={false} 
+                        axisLine={false} 
+                        stroke={isDarkMode ? '#a19e99' : '#73706b'}
+                      />
+                      <YAxis 
+                        tickLine={false} 
+                        axisLine={false} 
+                        stroke={isDarkMode ? '#a19e99' : '#73706b'}
+                        tickFormatter={(value) => `${value.toLocaleString()}`}
+                      />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: isDarkMode ? '#1e1c1a' : '#ffffff', 
+                          borderColor: isDarkMode ? '#33302c' : '#e5e5e0',
+                          borderRadius: '12px',
+                          color: isDarkMode ? '#ffffff' : '#1A1815'
+                        }}
+                        formatter={(value: any) => [`${value.toLocaleString()} FCFA`, 'Revenu']}
+                        labelFormatter={(label) => `Date : ${label}`}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="revenu" 
+                        stroke="#FF5252" 
+                        strokeWidth={2.5}
+                        fillOpacity={1} 
+                        fill="url(#colorRevenu)" 
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
             {/* Latest Sales / Transactions List */}
             <div className="flex flex-col gap-4">
               <h3 className={`font-display text-xl font-medium ${themeStyles.textPrimary} tracking-tight`}>
@@ -1534,6 +1891,170 @@ export default function Dashboard() {
             >
               <Plus size={24} />
             </Link>
+          </div>
+        )}
+        {activeTab === 'sales' && (
+          <div className="flex flex-col gap-6" id="dashboard-sales-container">
+            {/* Header section */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h1 className={`font-display text-2xl md:text-3xl font-medium tracking-tight ${themeStyles.textPrimary}`}>
+                  Mes ventes
+                </h1>
+                <p className={`text-xs ${themeStyles.textSecondary} mt-1`}>
+                  Consultez et gérez l'ensemble des revenus générés par vos créations.
+                </p>
+              </div>
+            </div>
+
+            {/* Sales stats grid (Brut, Net, count, average order value) */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Card 1 */}
+              <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] shadow-sm flex flex-col justify-between min-h-[110px]`}>
+                <span className={`text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Total Brut</span>
+                <div className="mt-2">
+                  <span className={`font-display text-base md:text-xl font-semibold ${themeStyles.textPrimary}`}>
+                    {totalBrutRevenue.toLocaleString()} FCFA
+                  </span>
+                  <p className={`text-[9px] ${themeStyles.textSecondary} mt-0.5`}>Volume d'affaires brut</p>
+                </div>
+              </div>
+
+              {/* Card 2 */}
+              <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] shadow-sm flex flex-col justify-between min-h-[110px] border-accent-corail/25`}>
+                <span className={`text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Revenu Net</span>
+                <div className="mt-2">
+                  <span className="font-display text-base md:text-xl font-semibold text-accent-corail">
+                    {totalNetRevenue.toLocaleString()} FCFA
+                  </span>
+                  <p className={`text-[9px] ${themeStyles.textSecondary} mt-0.5`}>Revenu dans votre poche</p>
+                </div>
+              </div>
+
+              {/* Card 3 */}
+              <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] shadow-sm flex flex-col justify-between min-h-[110px]`}>
+                <span className={`text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Volume Ventes</span>
+                <div className="mt-2">
+                  <span className={`font-display text-base md:text-xl font-semibold ${themeStyles.textPrimary}`}>
+                    {totalSalesCount} {totalSalesCount > 1 ? 'ventes' : 'vente'}
+                  </span>
+                  <p className={`text-[9px] ${themeStyles.textSecondary} mt-0.5`}>Nombre total d'achats</p>
+                </div>
+              </div>
+
+              {/* Card 4 */}
+              <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] shadow-sm flex flex-col justify-between min-h-[110px]`}>
+                <span className={`text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Panier Moyen</span>
+                <div className="mt-2">
+                  <span className={`font-display text-base md:text-xl font-semibold ${themeStyles.textPrimary}`}>
+                    {averageOrderValue.toLocaleString()} FCFA
+                  </span>
+                  <p className={`text-[9px] ${themeStyles.textSecondary} mt-0.5`}>Valeur nette par commande</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Filters Bar */}
+            <div className={`${themeStyles.surface} border ${themeStyles.border} p-4 rounded-[20px] shadow-sm flex flex-col md:flex-row gap-3`}>
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Rechercher par article, client..."
+                  value={salesSearch}
+                  onChange={(e) => setSalesSearch(e.target.value)}
+                  className={`w-full pl-9 pr-4 py-2 rounded-xl border ${themeStyles.border} text-xs focus:outline-none focus:border-accent-corail transition-colors bg-black/5 ${themeStyles.textPrimary}`}
+                  id="sales-search-input"
+                />
+              </div>
+
+              <div className="w-full md:w-48 relative">
+                <Filter className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                <select
+                  value={salesStatus}
+                  onChange={(e) => setSalesStatus(e.target.value)}
+                  className={`w-full pl-9 pr-8 py-2 rounded-xl border ${themeStyles.border} text-xs focus:outline-none focus:border-accent-corail transition-colors bg-transparent appearance-none cursor-pointer ${themeStyles.textPrimary}`}
+                  id="sales-status-select"
+                >
+                  <option value="all">Tous les statuts</option>
+                  <option value="completed">Payé / Complété</option>
+                  <option value="pending">En attente</option>
+                  <option value="failed">Échoué</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Sales List Table */}
+            <div className={`${themeStyles.surface} border ${themeStyles.border} rounded-[20px] overflow-hidden shadow-sm`}>
+              {filteredSalesList.length === 0 ? (
+                <div className="p-16 text-center flex flex-col items-center justify-center gap-3">
+                  <ShoppingBag className={`${themeStyles.textSecondary} opacity-30 h-12 w-12`} />
+                  <span className={`text-sm font-semibold ${themeStyles.textPrimary}`}>Aucune vente trouvée</span>
+                  <span className={`text-xs ${themeStyles.textSecondary}`}>Modifiez vos critères de recherche ou attendez vos premières ventes.</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-border-custom">
+                    <thead className="bg-black/5">
+                      <tr>
+                        <th className={`px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Article</th>
+                        <th className={`px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Client (Tel)</th>
+                        <th className={`px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Référence</th>
+                        <th className={`px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Date</th>
+                        <th className={`px-5 py-4.5 text-right text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Revenu Net</th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y ${themeStyles.border}`}>
+                      <AnimatePresence>
+                        {filteredSalesList.map((p, idx) => {
+                          const title = p.contents?.title || p.title || 'Guide exclusif';
+                          const dateString = p.created_at ? new Date(p.created_at).toLocaleDateString('fr-FR', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric'
+                          }) : 'Date inconnue';
+                          return (
+                            <motion.tr
+                              key={p.id || idx}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 0.2, delay: idx * 0.03 }}
+                              className="hover:bg-black/5 transition-colors animate-fade-in"
+                            >
+                              <td className="px-5 py-4 whitespace-nowrap">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className="w-8 h-8 rounded-lg bg-accent-corail/10 text-accent-corail flex items-center justify-center shrink-0">
+                                    <ShoppingBag size={14} />
+                                  </div>
+                                  <span className={`text-xs font-semibold ${themeStyles.textPrimary} truncate block max-w-[220px]`} title={title}>
+                                    {title}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className={`px-5 py-4 whitespace-nowrap text-xs font-mono font-medium ${themeStyles.textPrimary}`}>
+                                {p.buyer_phone || 'Non renseigné'}
+                              </td>
+                              <td className={`px-5 py-4 whitespace-nowrap text-xs font-mono ${themeStyles.textSecondary}`}>
+                                {p.payment_reference || 'REF-MOMO'}
+                              </td>
+                              <td className={`px-5 py-4 whitespace-nowrap text-xs ${themeStyles.textSecondary}`}>
+                                {dateString}
+                              </td>
+                              <td className="px-5 py-4 whitespace-nowrap text-right">
+                                <span className={`text-xs font-bold ${isDarkMode ? 'text-success-gold' : 'text-neutral-950'} font-mono`}>
+                                  +{(p.creator_net_amount_fcfa || 0).toLocaleString()} F
+                                </span>
+                              </td>
+                            </motion.tr>
+                          );
+                        })}
+                      </AnimatePresence>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -1691,7 +2212,7 @@ export default function Dashboard() {
                               value={priceFcfa}
                               onChange={(e) => setPriceFcfa(e.target.value === '' ? '' : Math.abs(parseInt(e.target.value)))}
                               placeholder="ex: 2000"
-                              min={100}
+                              min={1000}
                               required
                               className={`w-full px-3.5 py-2.5 rounded-[12px] ${isDarkMode ? 'bg-bg-primary' : 'bg-light-bg-primary'} border ${themeStyles.border} focus:border-accent-corail text-xs ${themeStyles.textPrimary} font-mono outline-none transition-colors`}
                             />
@@ -3045,6 +3566,201 @@ export default function Dashboard() {
             )}
           </div>
         )}
+
+      {/* 1. Modal: Changer de boutique */}
+      <AnimatePresence>
+        {isSwitchModalOpen && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className={`w-full max-w-sm p-6 rounded-[24px] border ${themeStyles.border} ${themeStyles.surface} relative shadow-2xl flex flex-col gap-6 text-left`}
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setIsSwitchModalOpen(false)}
+                className={`absolute top-4 right-4 p-1.5 rounded-full border ${themeStyles.border} ${themeStyles.textSecondary} hover:text-accent-corail transition-all cursor-pointer`}
+              >
+                <X size={14} />
+              </button>
+
+              {/* Title */}
+              <div className="text-center mt-2">
+                <h3 className={`font-display text-xl font-bold ${themeStyles.textPrimary}`}>
+                  Changer de boutique
+                </h3>
+              </div>
+
+              {/* Shop List */}
+              <div className="flex flex-col gap-2 max-h-60 overflow-y-auto pr-1">
+                {allProfiles.map((p) => {
+                  const isActive = p.id === profile?.id;
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => {
+                        if (!isActive) {
+                          switchProfile(p.id);
+                          setIsSwitchModalOpen(false);
+                        }
+                      }}
+                      className={`flex items-center justify-between p-3.5 rounded-xl border ${
+                        isActive 
+                          ? 'border-accent-corail/30 bg-accent-corail/5 font-bold' 
+                          : `${themeStyles.border} bg-neutral-50/50 dark:bg-neutral-900/10 hover:bg-neutral-800/5 dark:hover:bg-white/5`
+                      } transition-all cursor-pointer group`}
+                    >
+                      <div className="flex items-center gap-2.5 overflow-hidden">
+                        <div className={`w-8 h-8 rounded-lg ${isActive ? 'bg-accent-corail/15 text-accent-corail' : 'bg-neutral-800/10 dark:bg-neutral-800/50 text-neutral-400'} flex items-center justify-center shrink-0`}>
+                          <Store size={14} />
+                        </div>
+                        <div className="flex flex-col overflow-hidden">
+                          <span className={`text-xs font-bold ${themeStyles.textPrimary} truncate`}>
+                            {p.display_name}
+                          </span>
+                          <span className={`text-[10px] ${themeStyles.textSecondary} truncate`}>
+                            @{p.username}
+                          </span>
+                        </div>
+                      </div>
+                      <div className={`w-7 h-7 rounded-lg border ${themeStyles.border} flex items-center justify-center group-hover:bg-accent-corail group-hover:text-white transition-all shrink-0`}>
+                        {isActive ? (
+                          <Check size={12} className="text-accent-corail group-hover:text-white" />
+                        ) : (
+                          <span className="text-[10px] font-bold">→</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Yellow Button to Create Store */}
+              <button
+                onClick={() => {
+                  setIsCreateModalOpen(true);
+                  setCreateStoreError(null);
+                }}
+                className="w-full py-3 rounded-xl bg-accent-corail hover:bg-accent-corail-hover text-white text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+              >
+                <span>Créer une boutique</span>
+                <Plus size={14} />
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 2. Modal: Créer une boutique */}
+      <AnimatePresence>
+        {isCreateModalOpen && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className={`w-full max-w-sm p-6 rounded-[24px] border ${themeStyles.border} ${themeStyles.surface} relative shadow-2xl flex flex-col gap-5 text-left`}
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setIsCreateModalOpen(false)}
+                className={`absolute top-4 right-4 p-1.5 rounded-full border ${themeStyles.border} ${themeStyles.textSecondary} hover:text-accent-corail transition-all cursor-pointer`}
+              >
+                <X size={14} />
+              </button>
+
+              {/* Title */}
+              <div className="text-center mt-2">
+                <h3 className={`font-display text-xl font-bold ${themeStyles.textPrimary}`}>
+                  Créer une boutique
+                </h3>
+                <p className={`text-[11px] ${themeStyles.textSecondary} mt-1`}>
+                  Lancez un nouveau profil de vente sous votre compte actuel.
+                </p>
+              </div>
+
+              <form onSubmit={handleCreateStoreSubmit} className="flex flex-col gap-4">
+                {/* Form fields */}
+                <div className="flex flex-col gap-1.5">
+                  <label className={`text-[10px] font-bold uppercase tracking-wider ${themeStyles.textSecondary}`}>
+                    Nom de la boutique
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Mon Super Store"
+                    value={newStoreName}
+                    onChange={(e) => {
+                      setNewStoreName(e.target.value);
+                      // Auto slug generation
+                      const slug = e.target.value
+                        .toLowerCase()
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
+                        .replace(/[^a-z0-9]/g, '');
+                      setNewStoreSlug(slug);
+                    }}
+                    className={`w-full px-4 py-2.5 rounded-xl border ${themeStyles.border} bg-neutral-50/50 dark:bg-neutral-900/10 text-xs focus:border-accent-corail outline-none transition-all`}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className={`text-[10px] font-bold uppercase tracking-wider ${themeStyles.textSecondary}`}>
+                    Identifiant URL unique
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-neutral-500 font-mono">
+                      @
+                    </span>
+                    <input
+                      type="text"
+                      required
+                      placeholder="monstore"
+                      value={newStoreSlug}
+                      onChange={(e) => {
+                        const slug = e.target.value
+                          .toLowerCase()
+                          .normalize('NFD')
+                          .replace(/[\u0300-\u036f]/g, '')
+                          .replace(/[^a-z0-9]/g, '');
+                        setNewStoreSlug(slug);
+                      }}
+                      className={`w-full pl-7 pr-4 py-2.5 rounded-xl border ${themeStyles.border} bg-neutral-50/50 dark:bg-neutral-900/10 text-xs font-mono focus:border-accent-corail outline-none transition-all`}
+                    />
+                  </div>
+                  <span className="text-[9px] text-neutral-500">
+                    Votre boutique sera disponible sur : {window.location.origin}/@{newStoreSlug || 'identifiant'}
+                  </span>
+                </div>
+
+                {createStoreError && (
+                  <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] leading-relaxed">
+                    {createStoreError}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isCreatingStore}
+                  className="w-full py-3 mt-2 rounded-xl bg-accent-corail hover:bg-accent-corail-hover text-white text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isCreatingStore ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Création...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Créer ma boutique</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       </main>
       </div>

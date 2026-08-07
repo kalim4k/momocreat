@@ -293,7 +293,11 @@ var getAppUrl = () => {
   const isRealUrl = (v) => !!v && /^https?:\/\//.test(v);
   const configuredAppUrl = [process.env.NEXT_PUBLIC_APP_URL, process.env.APP_URL].find(isRealUrl);
   const vercelAppUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : void 0;
-  return (configuredAppUrl || vercelAppUrl || `http://localhost:${PORT}`).replace(/\/$/, "");
+  let url = (configuredAppUrl || vercelAppUrl || `http://localhost:${PORT}`).replace(/\/$/, "");
+  if (url.includes("localhost")) {
+    url = url.replace("localhost", "lvh.me");
+  }
+  return url;
 };
 var supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 var supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
@@ -616,7 +620,7 @@ app.post("/api/payment/create-anonymous-cart", async (req, res) => {
     const buyerLastName = "Anonyme";
     if (isMaketouConfigured) {
       const appUrl = getAppUrl();
-      const redirectURL = `${appUrl}/pay/confirm?cartId={cartId}`;
+      const redirectURL = `${appUrl}/pay/confirm`;
       const requestBody = {
         productDocumentId: process.env.MAKETOU_PRODUCT_ID,
         email: buyerEmail,
@@ -649,13 +653,13 @@ app.post("/api/payment/create-anonymous-cart", async (req, res) => {
         console.error("[Server] Missing keys in Maketou response. Full response:", JSON.stringify(maketouData));
         throw new Error(`Donn\xE9es de panier ou d'URL de redirection manquantes dans la r\xE9ponse Maketou.`);
       }
-      return res.json({ redirectUrl });
+      return res.json({ redirectUrl, cartId });
     } else {
       console.log("[Server] Maketou not configured. Simulating anonymous checkout.");
       const mockCartId = `mock_cart_anon_${Math.random().toString(36).substring(2, 11)}`;
       const appUrl = getAppUrl();
       const simulatedRedirectUrl = `${appUrl}/pay/confirm?cartId=${mockCartId}`;
-      return res.json({ redirectUrl: simulatedRedirectUrl });
+      return res.json({ redirectUrl: simulatedRedirectUrl, cartId: mockCartId });
     }
   } catch (err) {
     console.error("[Server] Create Anonymous Cart error:", err);
@@ -2089,6 +2093,108 @@ app.get("/api/admin/recent-purchases", async (req, res) => {
   } catch (err) {
     console.error("[Server] Admin recent purchases error:", err);
     return res.status(500).json({ error: "Erreur lors du chargement des transactions r\xE9centes." });
+  }
+});
+app.get("/api/admin/contents", async (req, res) => {
+  try {
+    const search = (req.query.search || "").toLowerCase();
+    const type = req.query.type || "all";
+    const status = req.query.status || "all";
+    let allContents = [];
+    let usedFallback = false;
+    if (supabaseAdmin) {
+      try {
+        const { data, error } = await supabaseAdmin.from("contents").select("*, creator:creator_profiles(display_name, username, avatar_url)");
+        if (error) throw error;
+        allContents = data || [];
+      } catch (dbErr) {
+        console.warn("[Server] Supabase contents select failed, falling back to mock data:", dbErr);
+        usedFallback = true;
+      }
+    }
+    if (!supabaseAdmin || usedFallback) {
+      const localContents = [
+        {
+          id: "con_1",
+          creator_id: "creator_1",
+          title: "Pack PDF : Booster son audience TikTok en 30 jours",
+          description: "La m\xE9thode compl\xE8te pour scaler son compte.",
+          price_fcfa: 2500,
+          content_type: "pdf",
+          status: "published",
+          is_published: true,
+          created_at: new Date(Date.now() - 36e5 * 240).toISOString(),
+          creator: { display_name: "Michella Coaching", username: "michella_coaching", avatar_url: null }
+        },
+        {
+          id: "con_2",
+          creator_id: "creator_1",
+          title: "Template Notion : Organiser ses tournages Reels & TikTok",
+          description: "Un espace de travail pr\xEAt \xE0 l'emploi.",
+          price_fcfa: 1500,
+          content_type: "pdf",
+          status: "published",
+          is_published: true,
+          created_at: new Date(Date.now() - 36e5 * 120).toISOString(),
+          creator: { display_name: "Michella Coaching", username: "michella_coaching", avatar_url: null }
+        },
+        {
+          id: "con_3",
+          creator_id: "creator_1",
+          title: "Masterclass : D\xE9cryptage de l'Algorithme 2026 (Vid\xE9o 20m)",
+          description: "Vid\xE9o exclusive pour comprendre l'algo.",
+          price_fcfa: 5e3,
+          content_type: "video",
+          status: "published",
+          is_published: true,
+          created_at: new Date(Date.now() - 36e5 * 72).toISOString(),
+          creator: { display_name: "Michella Coaching", username: "michella_coaching", avatar_url: null }
+        }
+      ];
+      allContents = localContents;
+    }
+    const filtered = allContents.filter((c) => {
+      const matchesSearch = !search || c.title.toLowerCase().includes(search) || c.description && c.description.toLowerCase().includes(search) || c.creator && c.creator.display_name.toLowerCase().includes(search) || c.creator && c.creator.username.toLowerCase().includes(search);
+      const matchesType = type === "all" || c.content_type === type;
+      const matchesStatus = status === "all" || c.status === status;
+      return matchesSearch && matchesType && matchesStatus;
+    });
+    return res.json(filtered);
+  } catch (err) {
+    console.error("[Server] Admin contents list error:", err);
+    return res.status(500).json({ error: "Erreur lors du chargement des contenus." });
+  }
+});
+app.post("/api/admin/contents/:id/toggle-status", async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  if (!status || !["published", "draft", "archived", "removed"].includes(status)) {
+    return res.status(400).json({ error: "Statut de mod\xE9ration invalide." });
+  }
+  try {
+    const isPublished = status === "published";
+    if (supabaseAdmin) {
+      const { data, error } = await supabaseAdmin.from("contents").update({ status, is_published: isPublished }).eq("id", id).select().single();
+      if (error) throw error;
+      return res.json({ success: true, status: data.status, is_published: data.is_published });
+    }
+    return res.json({ success: true, status, is_published: isPublished });
+  } catch (err) {
+    console.error("[Server] Admin content toggle status error:", err);
+    return res.status(500).json({ error: "Erreur lors du changement de statut du contenu." });
+  }
+});
+app.delete("/api/admin/contents/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    if (supabaseAdmin) {
+      const { error } = await supabaseAdmin.from("contents").delete().eq("id", id);
+      if (error) throw error;
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[Server] Admin content delete error:", err);
+    return res.status(500).json({ error: "Erreur lors de la suppression du contenu." });
   }
 });
 async function startServer() {

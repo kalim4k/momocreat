@@ -18,6 +18,7 @@ import {
   CheckCircle,
   Loader2
 } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
 
 interface ContentDetails {
   id: string;
@@ -30,6 +31,7 @@ interface ContentDetails {
 export default function ContentView() {
   const { contentId } = useParams<{ contentId: string }>();
   const navigate = useNavigate();
+  const { isDarkMode, styles: themeStyles } = useTheme();
 
   const [emailInput, setEmailInput] = useState(() => localStorage.getItem('momo_buyer_email') || '');
   const [hasChecked, setHasChecked] = useState(false);
@@ -138,19 +140,19 @@ export default function ContentView() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAFAF8] text-[#1A1815] pb-16">
+    <div className={`min-h-screen ${themeStyles.bg} ${themeStyles.textPrimary} pb-16 transition-colors duration-200`}>
       {/* Header */}
-      <div className="border-b border-gray-200 bg-white sticky top-0 z-40 px-4 py-3.5">
+      <div className={`border-b ${themeStyles.border} ${themeStyles.surface} sticky top-0 z-40 px-4 py-3.5`}>
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <button
             onClick={handleBackToCreator}
-            className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-neutral-900 transition-colors cursor-pointer"
+            className={`flex items-center gap-1.5 text-xs font-semibold ${themeStyles.textSecondary} hover:text-text-primary transition-colors cursor-pointer`}
           >
             <ChevronLeft size={16} />
             <span>Retour</span>
           </button>
           
-          <span className="font-display font-bold text-xs tracking-tight text-neutral-900">
+          <span className={`font-display font-bold text-xs tracking-tight ${themeStyles.textPrimary}`}>
             Portail de Téléchargement <span className="text-accent-corail text-[10px]">Sécurisé</span>
           </span>
         </div>
@@ -160,19 +162,19 @@ export default function ContentView() {
         
         {/* Content Info Card */}
         {content && (
-          <div className="bg-white border border-gray-200 rounded-[24px] p-6 flex flex-col md:flex-row gap-5 items-start md:items-center shadow-sm">
+          <div className={`${themeStyles.surface} border ${themeStyles.border} rounded-[24px] p-6 flex flex-col md:flex-row gap-5 items-start md:items-center shadow-sm`}>
             <div className="p-4 bg-accent-corail/10 rounded-2xl shrink-0">
               {renderTypeIcon(content.content_type)}
             </div>
             
-            <div className="flex flex-col gap-1">
-              <span className="text-[9px] font-mono font-bold uppercase tracking-widest text-gray-400">
+            <div className="flex flex-col gap-1 text-left">
+              <span className={`text-[9px] font-mono font-bold uppercase tracking-widest ${themeStyles.textSecondary}`}>
                 Fichier Exclusif • {content.content_type}
               </span>
-              <h1 className="font-display text-lg font-bold text-neutral-900 leading-tight">
+              <h1 className={`font-display text-lg font-bold ${themeStyles.textPrimary} leading-tight`}>
                 {content.title}
               </h1>
-              <p className="text-xs text-gray-500 leading-relaxed mt-1">
+              <p className={`text-xs ${themeStyles.textSecondary} leading-relaxed mt-1`}>
                 {content.description}
               </p>
             </div>
@@ -181,70 +183,106 @@ export default function ContentView() {
 
         {/* ACCESS VERIFIED STATUS */}
         {hasChecked && hasAccess ? (
-          <div className="bg-white border border-green-200 rounded-[28px] p-8 flex flex-col items-center text-center gap-6 shadow-sm">
+          <div className={`${themeStyles.surface} border border-green-500/30 rounded-[28px] p-8 flex flex-col items-center text-center gap-6 shadow-sm`}>
             <div className="p-3 bg-green-500/10 text-green-500 rounded-full border border-green-500/20">
               <CheckCircle size={32} />
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <h2 className="font-display text-lg font-bold text-neutral-900">Accès vérifié avec succès !</h2>
-              <p className="text-xs text-gray-500 max-w-sm leading-relaxed">
-                Votre transaction a été validée. Cliquez sur le bouton ci-dessous pour télécharger ou visionner votre contenu.
+              <h2 className={`font-display text-lg font-bold ${themeStyles.textPrimary}`}>Accès vérifié avec succès !</h2>
+              <p className={`text-xs ${themeStyles.textSecondary} max-w-sm leading-relaxed`}>
+                Votre transaction a été validée. Retrouvez votre contenu et vos options de téléchargement ci-dessous.
               </p>
             </div>
 
             {signedUrl && (
-              <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md mt-2">
-                <a
-                  href={signedUrl}
-                  download
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 py-3.5 rounded-xl text-xs font-bold text-white bg-accent-corail hover:bg-accent-corail-hover transition-colors flex items-center justify-center gap-2 shadow"
-                >
-                  <Download size={15} />
-                  <span>Télécharger le fichier</span>
-                </a>
-                
-                <a
-                  href={signedUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-5 py-3.5 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
-                >
-                  <span>Ouvrir</span>
-                  <ExternalLink size={13} />
-                </a>
+              <div className="w-full flex flex-col gap-5 mt-2 max-w-md">
+                {/* Integrated Media Player */}
+                {content?.content_type === 'video' && (
+                  <div className={`w-full aspect-video rounded-2xl overflow-hidden bg-black border ${themeStyles.border} shadow-md`}>
+                    <video 
+                      src={signedUrl} 
+                      controls 
+                      className="w-full h-full" 
+                      controlsList="nodownload"
+                    />
+                  </div>
+                )}
+
+                {content?.content_type === 'audio' && (
+                  <div className={`w-full p-4 rounded-xl ${themeStyles.badgeBg} border ${themeStyles.border} flex flex-col gap-2 text-left`}>
+                    <span className={`text-[10px] uppercase font-bold tracking-wider ${themeStyles.textSecondary}`}>Lecteur Audio Intégré</span>
+                    <audio 
+                      src={signedUrl} 
+                      controls 
+                      className="w-full mt-1" 
+                      controlsList="nodownload"
+                    />
+                  </div>
+                )}
+
+                {content?.content_type === 'image' && (
+                  <div className={`w-full max-h-[360px] rounded-2xl overflow-hidden bg-neutral-100 dark:bg-neutral-900 border ${themeStyles.border} flex items-center justify-center shadow-sm`}>
+                    <img 
+                      src={signedUrl} 
+                      alt={content.title} 
+                      className="max-w-full max-h-[360px] object-contain"
+                    />
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 w-full">
+                  <a
+                    href={signedUrl}
+                    download
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 py-3.5 rounded-xl text-xs font-bold text-white bg-accent-corail hover:bg-accent-corail-hover transition-colors flex items-center justify-center gap-2 shadow"
+                  >
+                    <Download size={15} />
+                    <span>Télécharger le fichier</span>
+                  </a>
+                  
+                  <a
+                    href={signedUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`px-5 py-3.5 rounded-xl text-xs font-bold ${themeStyles.textPrimary} ${themeStyles.badgeBg} ${themeStyles.hoverBg} border ${themeStyles.border} transition-colors flex items-center justify-center gap-1.5`}
+                  >
+                    <span>Ouvrir</span>
+                    <ExternalLink size={13} />
+                  </a>
+                </div>
               </div>
             )}
 
-            <p className="text-[10px] text-gray-400 leading-normal max-w-xs mt-1">
+            <p className={`text-[10px] ${themeStyles.textSecondary} leading-normal max-w-xs mt-1`}>
               Ce lien d'accès sécurisé est temporaire et expirera dans une heure. Vous pouvez revenir sur cette page et ré-entrer votre adresse email d'achat à tout moment pour régénérer un lien.
             </p>
           </div>
         ) : (
           /* EMAIL INPUT FORM / GATEKEEPER */
-          <div className="bg-white border border-gray-200 rounded-[28px] p-8 flex flex-col items-center text-center gap-6 shadow-sm">
-            <div className="p-3.5 bg-neutral-100 text-neutral-400 rounded-full border border-gray-200">
+          <div className={`${themeStyles.surface} border ${themeStyles.border} rounded-[28px] p-8 flex flex-col items-center text-center gap-6 shadow-sm`}>
+            <div className={`p-3.5 ${themeStyles.badgeBg} ${themeStyles.textSecondary} rounded-full border ${themeStyles.border}`}>
               <Lock size={24} />
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <h2 className="font-display text-base font-bold text-neutral-900">Ce contenu est verrouillé</h2>
-              <p className="text-xs text-gray-500 max-w-xs leading-relaxed">
+              <h2 className={`font-display text-base font-bold ${themeStyles.textPrimary}`}>Ce contenu est verrouillé</h2>
+              <p className={`text-xs ${themeStyles.textSecondary} max-w-xs leading-relaxed`}>
                 Veuillez entrer l'adresse email utilisée lors du paiement pour débloquer votre accès instantanément.
               </p>
             </div>
 
             <form onSubmit={handleSubmitEmail} className="w-full max-w-sm flex flex-col gap-3.5 mt-2">
               <div className="flex flex-col text-left gap-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 pl-1">Adresse email d'achat</label>
+                <label className={`text-[10px] font-bold uppercase tracking-wider ${themeStyles.textSecondary} pl-1`}>Adresse email d'achat</label>
                 <input
                   type="email"
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
                   placeholder="Ex: buyer@email.com"
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs focus:outline-none focus:border-accent-corail focus:ring-1 focus:ring-accent-corail transition-all text-neutral-900"
+                  className={`w-full px-4 py-3 rounded-xl border ${themeStyles.border} bg-bg-primary text-xs focus:outline-none focus:border-accent-corail transition-all ${themeStyles.textPrimary}`}
                   required
                 />
               </div>
@@ -273,7 +311,6 @@ export default function ContentView() {
             </form>
           </div>
         )}
-
       </div>
     </div>
   );
