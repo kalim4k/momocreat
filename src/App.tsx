@@ -419,18 +419,18 @@ export function LandingPage() {
           <div className="flex items-center gap-2.5">
             <img 
               src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
-              alt="Momo Creator Logo" 
+              alt="MomoLink Logo" 
               className="h-8 w-8 object-contain rounded-lg"
               id="app-logo"
             />
-            <h1 className="font-display text-2xl font-medium tracking-tight">Momo Creator</h1>
+            <h1 className="font-display text-2xl font-medium tracking-tight">MomoLink</h1>
           </div>
 
           <div className="flex items-center gap-4">
             <Link
               id="header-cta"
               to="/auth/signup"
-              className="px-5 py-2 rounded-full text-xs font-semibold bg-accent-corail text-white hover:bg-accent-corail-hover transition-all cursor-pointer text-center"
+              className="px-5 py-2 rounded-full text-xs font-semibold bg-accent-corail text-white hover:bg-accent-corail-hover transition-all cursor-pointer text-center whitespace-nowrap"
             >
               Devenir créateur
             </Link>
@@ -565,7 +565,7 @@ export function LandingPage() {
             <Link
               id="hero-primary-cta"
               to="/auth/signup"
-              className="w-full sm:w-auto px-8 py-3.5 rounded-full text-sm font-bold bg-accent-corail text-white hover:bg-accent-corail-hover hover:scale-105 transition-all duration-200 cursor-pointer shadow-lg shadow-accent-corail/25 flex items-center justify-center gap-2"
+              className="w-full sm:w-auto px-8 py-3.5 rounded-full text-sm font-bold bg-accent-corail text-white hover:bg-accent-corail-hover hover:scale-105 transition-all duration-200 cursor-pointer shadow-lg shadow-accent-corail/25 flex items-center justify-center gap-2 whitespace-nowrap"
             >
               <span>Devenir créateur (Gratuit)</span>
               <ArrowRight size={16} />
@@ -905,7 +905,7 @@ export function LandingPage() {
                     <button 
                       onClick={() => {
                         const element = document.createElement("a");
-                        const file = new Blob(["Félicitations pour votre achat fictif sur Momo Creator !"], {type: 'text/plain'});
+                        const file = new Blob(["Félicitations pour votre achat fictif sur MomoLink !"], {type: 'text/plain'});
                         element.href = URL.createObjectURL(file);
                         element.download = "guide-booster-communaute-demo.txt";
                         document.body.appendChild(element);
@@ -982,7 +982,7 @@ export function LandingPage() {
                     Livraison 100% Automatisée
                   </h4>
                   <p className="text-sm text-text-secondary leading-relaxed">
-                    Momo Creator livre le fichier instantanément après validation du paiement. Pas d'envoi manuel fastidieux, tout s'exécute automatiquement pendant que vous dormez.
+                    MomoLink livre le fichier instantanément après validation du paiement. Pas d'envoi manuel fastidieux, tout s'exécute automatiquement pendant que vous dormez.
                   </p>
                 </div>
               </div>
@@ -1004,7 +1004,7 @@ export function LandingPage() {
               La majorité des outils de monétisation actuels imposent d'avoir un compte Stripe ou Paypal, inaccessibles ou très limités pour la plupart des créateurs de contenu en Afrique de l'Ouest et Centrale.
             </p>
             <p className={`text-sm ${styles.textSecondary} leading-relaxed`}>
-              <strong>Momo Creator</strong> résout cela en se branchant directement sur les services que vos abonnés et vous-même utilisez déjà tous les jours : <strong>Wave, Orange Money, MTN MoMo, Moov Money</strong>.
+              <strong>MomoLink</strong> résout cela en se branchant directement sur les services que vos abonnés et vous-même utilisez déjà tous les jours : <strong>Wave, Orange Money, MTN MoMo, Moov Money</strong>.
             </p>
             
             <div className="grid grid-cols-2 gap-4 mt-2">

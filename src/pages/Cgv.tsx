@@ -13,7 +13,7 @@ export default function Cgv() {
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
             <span className="h-2.5 w-2.5 rounded-full bg-accent-corail animate-pulse" />
-            <span className="font-display text-xl font-medium tracking-tight text-text-primary">Momo Creator</span>
+            <span className="font-display text-xl font-medium tracking-tight text-text-primary">MomoLink</span>
           </Link>
           <Link
             to="/"
