@@ -1417,14 +1417,14 @@ export default function Dashboard() {
       <div className="flex-1 flex flex-col min-h-screen overflow-hidden">
         
         {/* Global Dashboard Top Header */}
-        <header className={`flex items-center justify-between ${themeStyles.surface} border-b ${themeStyles.border} px-4 md:px-8 py-3.5 sticky top-0 z-40 transition-colors duration-200 shadow-sm`}>
+        <header className={`flex items-center justify-between gap-2 ${themeStyles.surface} border-b ${themeStyles.border} px-4 md:px-8 py-3.5 sticky top-0 z-40 transition-colors duration-200 shadow-sm`}>
           {/* Left part: Store Switcher Dropdown */}
           <div className="flex items-center gap-3">
 
             {/* Store Switcher Trigger Button */}
             <button
               onClick={() => setIsSwitchModalOpen(true)}
-              className={`flex items-center justify-between gap-2 px-4 py-2 rounded-xl border ${themeStyles.border} ${themeStyles.surface} hover:bg-neutral-800/5 dark:hover:bg-white/5 transition-all cursor-pointer text-left shadow-sm group w-[180px] sm:w-[220px]`}
+              className={`flex items-center justify-between gap-2 px-3 sm:px-4 py-2 rounded-xl border ${themeStyles.border} ${themeStyles.surface} hover:bg-neutral-800/5 dark:hover:bg-white/5 transition-all cursor-pointer text-left shadow-sm group w-[125px] sm:w-[220px]`}
             >
               <div className="flex items-center gap-2 overflow-hidden w-full justify-between">
                 <div className="flex items-center gap-2 overflow-hidden">

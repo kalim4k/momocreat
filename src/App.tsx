@@ -498,7 +498,7 @@ export function LandingPage() {
               hidden: { opacity: 0, y: 25 },
               visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 80, damping: 15 } }
             }}
-            className="font-display text-4xl sm:text-6xl font-extrabold tracking-tight leading-tight max-w-4xl text-neutral-900 dark:text-white"
+            className="font-display text-4xl sm:text-6xl font-extrabold tracking-tight leading-tight max-w-4xl text-text-primary"
           >
             Vendez vos{" "}
             <span className="text-accent-corail relative inline-flex justify-center h-[48px] sm:h-[80px] min-w-[130px] sm:min-w-[280px] overflow-hidden align-bottom">
@@ -524,7 +524,7 @@ export function LandingPage() {
               hidden: { opacity: 0, y: 20 },
               visible: { opacity: 1, y: 0, transition: { duration: 0.5 } }
             }}
-            className={`text-base sm:text-lg ${styles.textSecondary} max-w-2xl leading-relaxed`}
+            className="text-base sm:text-xl text-text-secondary max-w-2xl leading-relaxed font-normal"
           >
             Vendez vos guides, formations, photos ou vidéos exclusifs directement à vos abonnés au Togo, en Côte d’Ivoire, au Sénégal et au Cameroun. Vos fans paient en un clic via <strong>Wave, Orange, MTN ou Moov</strong>.
           </motion.p>
