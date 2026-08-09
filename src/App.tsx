@@ -33,7 +33,8 @@ import {
   Globe,
   Quote,
   Youtube,
-  ShoppingBag
+  ShoppingBag,
+  Play
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
@@ -439,7 +440,12 @@ export function LandingPage() {
       </header>
 
       {/* Hero Section with Relative and Overflow-Visible for absolute floating elements */}
-      <section id="hero" className="relative max-w-6xl w-full mx-auto px-4 md:px-12 pt-16 pb-12 flex flex-col items-center text-center gap-6 overflow-visible">
+      <section id="hero" className="relative max-w-6xl w-full mx-auto px-4 md:px-12 pt-20 pb-16 flex flex-col items-center text-center gap-6 overflow-visible">
+        {/* Premium Background Elements */}
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808008_1px,transparent_1px),linear-gradient(to_bottom,#80808008_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none -z-10 opacity-80" />
+        <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[320px] h-[320px] sm:w-[450px] sm:h-[450px] rounded-full bg-accent-corail/8 blur-[100px] pointer-events-none -z-10" />
+        <div className="absolute top-40 left-1/3 w-[200px] h-[200px] rounded-full bg-purple-500/6 blur-[80px] pointer-events-none -z-10" />
+
         {/* Absolute Floating Badges (Visible on desktop and tablets for dynamic styling) */}
         {floatingLogos.map((logo, idx) => (
           <motion.div
@@ -486,10 +492,18 @@ export function LandingPage() {
               hidden: { opacity: 0, y: 15 },
               visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100 } }
             }}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent-corail/10 text-accent-corail text-xs font-semibold border border-accent-corail/20"
+            className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-linear-to-r from-accent-corail/8 to-purple-600/8 text-accent-corail text-xs font-bold border border-accent-corail/15 shadow-[0_4px_15px_rgba(225,79,48,0.04)] backdrop-blur-md relative overflow-hidden group select-none shrink-0"
           >
-            <Sparkles size={12} className="animate-pulse" />
-            <span>Pour les créateurs sur TikTok, Instagram & Snapchat</span>
+            {/* Glossy reflection shimmer */}
+            <div className="absolute inset-0 w-1/2 h-full bg-white/20 skew-x-12 -translate-x-full animate-[shimmer_3.5s_infinite_ease-out] pointer-events-none" />
+            
+            {/* Live Indicator pulse */}
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-corail opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-accent-corail"></span>
+            </span>
+
+            <span>Pour les créateurs sur TikTok, Instagram, YouTube & Snapchat</span>
           </motion.div>
 
           {/* Title */}
@@ -501,7 +515,7 @@ export function LandingPage() {
             className="font-display text-4xl sm:text-6xl font-extrabold tracking-tight leading-tight max-w-4xl text-text-primary"
           >
             Vendez vos{" "}
-            <span className="text-accent-corail relative inline-flex justify-center h-[48px] sm:h-[80px] min-w-[130px] sm:min-w-[280px] overflow-hidden align-bottom">
+            <span className="bg-clip-text text-transparent bg-linear-to-r from-accent-corail via-pink-500 to-purple-600 relative inline-flex justify-center h-[48px] sm:h-[80px] min-w-[130px] sm:min-w-[280px] overflow-hidden align-bottom pb-1 font-extrabold">
               <AnimatePresence mode="wait">
                 <motion.span
                   key={activeWordIdx}
@@ -509,7 +523,7 @@ export function LandingPage() {
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: -35, opacity: 0 }}
                   transition={{ duration: 0.35, ease: "easeInOut" }}
-                  className="absolute left-0 right-0 text-center"
+                  className="absolute left-0 right-0 text-center font-extrabold"
                 >
                   {words[activeWordIdx]}
                 </motion.span>
@@ -560,16 +574,26 @@ export function LandingPage() {
               hidden: { opacity: 0, scale: 0.95 },
               visible: { opacity: 1, scale: 1, transition: { type: "spring", stiffness: 100 } }
             }}
-            className="flex flex-col sm:flex-row items-center gap-4 mt-2 w-full justify-center"
+            className="flex flex-col sm:flex-row items-center gap-4 mt-4 w-full justify-center animate-fade-in"
           >
+            {/* Primary button */}
             <Link
               id="hero-primary-cta"
               to="/auth/signup"
-              className="w-full sm:w-auto px-8 py-3.5 rounded-full text-sm font-bold bg-accent-corail text-white hover:bg-accent-corail-hover hover:scale-105 transition-all duration-200 cursor-pointer shadow-lg shadow-accent-corail/25 flex items-center justify-center gap-2 whitespace-nowrap"
+              className="w-full sm:w-auto px-8 py-4 rounded-full text-sm font-bold bg-accent-corail text-white hover:bg-accent-corail-hover hover:scale-105 hover:shadow-[0_0_24px_rgba(225,79,48,0.35)] transition-all duration-200 cursor-pointer shadow-lg shadow-accent-corail/25 flex items-center justify-center gap-2 whitespace-nowrap"
             >
               <span>Devenir créateur (Gratuit)</span>
               <ArrowRight size={16} />
             </Link>
+
+            {/* Secondary button */}
+            <a
+              href="#live-demo"
+              className={`w-full sm:w-auto px-8 py-4 rounded-full text-sm font-bold border ${styles.border} ${isDarkMode ? 'bg-neutral-900/40 text-white hover:bg-neutral-800' : 'bg-white text-text-primary hover:bg-gray-50'} hover:scale-105 transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap shadow-xs`}
+            >
+              <span>Voir la démo</span>
+              <Play size={14} className="shrink-0 animate-pulse" />
+            </a>
           </motion.div>
 
           {/* Active Users Social Proof Badge */}
