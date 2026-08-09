@@ -671,22 +671,27 @@ export function LandingPage() {
       </section>
 
       {/* Section "Comment ça marche ?" */}
-      <section id="how-it-works" className={`border-t border-b ${styles.border} py-16 px-4 ${isDarkMode ? 'bg-bg-surface/30' : 'bg-gray-50/50'}`}>
-        <div className="max-w-5xl mx-auto flex flex-col gap-12">
-          <div className="text-center flex flex-col gap-2">
-            <h2 className="font-display text-3xl font-medium tracking-tight">Comment ça marche ?</h2>
+      <section id="how-it-works" className={`border-t border-b ${styles.border} py-20 px-4 ${isDarkMode ? 'bg-bg-surface/30' : 'bg-gray-50/50'} relative overflow-hidden`}>
+        {/* Subtle background accent */}
+        <div className="absolute top-0 right-0 w-[300px] h-[300px] rounded-full bg-accent-corail/4 blur-[120px] pointer-events-none" />
+        
+        <div className="max-w-5xl mx-auto flex flex-col gap-14">
+          <div className="text-center flex flex-col gap-3">
+            <span className="text-[10px] font-bold text-accent-corail uppercase tracking-widest">Processus simplifié</span>
+            <h2 className="font-display text-3xl sm:text-4xl font-medium tracking-tight">Comment ça marche ?</h2>
             <p className={`text-sm ${styles.textSecondary} max-w-lg mx-auto`}>
               Trois étapes simples pour transformer vos vues sur les réseaux sociaux en revenus réels.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Step 1 */}
-            <div className={`p-6 rounded-[16px] border ${styles.surface} flex flex-col gap-4 relative overflow-hidden group`}>
-              <div className="p-3 rounded-xl bg-accent-corail/10 text-accent-corail w-fit">
+            <div className={`p-7 rounded-[20px] border ${styles.surface} flex flex-col gap-5 relative overflow-hidden group hover:shadow-lg hover:border-accent-corail/20 transition-all duration-300`}>
+              <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-accent-corail to-pink-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="p-3.5 rounded-xl bg-accent-corail/10 text-accent-corail w-fit group-hover:bg-accent-corail group-hover:text-white transition-all duration-300">
                 <UploadCloud size={24} />
               </div>
-              <div className="absolute top-4 right-6 text-5xl font-display font-medium text-accent-corail/10">1</div>
+              <div className="absolute top-5 right-6 text-6xl font-display font-extrabold bg-clip-text text-transparent bg-linear-to-br from-accent-corail/10 to-pink-500/10 select-none">1</div>
               <h3 className="font-display text-lg font-medium">1. Créez & fixez votre prix</h3>
               <p className={`text-sm ${styles.textSecondary} leading-relaxed`}>
                 Importez votre PDF, vidéo ou document confidentiel. Fixez un prix unique en FCFA (ex: 2 500 FCFA). Nous générons un lien sécurisé.
@@ -694,11 +699,12 @@ export function LandingPage() {
             </div>
 
             {/* Step 2 */}
-            <div className={`p-6 rounded-[16px] border ${styles.surface} flex flex-col gap-4 relative overflow-hidden group`}>
-              <div className="p-3 rounded-xl bg-accent-corail/10 text-accent-corail w-fit">
+            <div className={`p-7 rounded-[20px] border ${styles.surface} flex flex-col gap-5 relative overflow-hidden group hover:shadow-lg hover:border-accent-corail/20 transition-all duration-300`}>
+              <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-pink-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="p-3.5 rounded-xl bg-accent-corail/10 text-accent-corail w-fit group-hover:bg-accent-corail group-hover:text-white transition-all duration-300">
                 <Share2 size={24} />
               </div>
-              <div className="absolute top-4 right-6 text-5xl font-display font-medium text-accent-corail/10">2</div>
+              <div className="absolute top-5 right-6 text-6xl font-display font-extrabold bg-clip-text text-transparent bg-linear-to-br from-pink-500/10 to-purple-500/10 select-none">2</div>
               <h3 className="font-display text-lg font-medium">2. Partagez votre lien</h3>
               <p className={`text-sm ${styles.textSecondary} leading-relaxed`}>
                 Ajoutez le lien dans votre bio TikTok, Instagram ou envoyez-le sur Snapchat. Vos fans accèdent directement à votre page sans inscription.
@@ -706,11 +712,12 @@ export function LandingPage() {
             </div>
 
             {/* Step 3 */}
-            <div className={`p-6 rounded-[16px] border ${styles.surface} flex flex-col gap-4 relative overflow-hidden group`}>
-              <div className="p-3 rounded-xl bg-accent-corail/10 text-accent-corail w-fit">
+            <div className={`p-7 rounded-[20px] border ${styles.surface} flex flex-col gap-5 relative overflow-hidden group hover:shadow-lg hover:border-accent-corail/20 transition-all duration-300`}>
+              <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-purple-500 to-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="p-3.5 rounded-xl bg-accent-corail/10 text-accent-corail w-fit group-hover:bg-accent-corail group-hover:text-white transition-all duration-300">
                 <Coins size={24} />
               </div>
-              <div className="absolute top-4 right-6 text-5xl font-display font-medium text-accent-corail/10">3</div>
+              <div className="absolute top-5 right-6 text-6xl font-display font-extrabold bg-clip-text text-transparent bg-linear-to-br from-purple-500/10 to-emerald-500/10 select-none">3</div>
               <h3 className="font-display text-lg font-medium">3. Encaissez directement</h3>
               <p className={`text-sm ${styles.textSecondary} leading-relaxed`}>
                 Les acheteurs paient en Mobile Money. Vos fonds s'accumulent instantanément. Demandez vos retraits en Wave, Orange ou MTN à tout moment.
@@ -1142,29 +1149,35 @@ export function LandingPage() {
       </section>
 
       {/* Footer Final CTA */}
-      <section id="final-cta" className="max-w-4xl w-full mx-auto px-4 py-20 flex flex-col items-center text-center gap-8">
-        <h2 className="font-display text-4xl font-medium tracking-tight">
-          Rejoignez la révolution de la monétisation en Afrique
-        </h2>
-        <p className={`text-base ${styles.textSecondary} max-w-lg mx-auto`}>
-          Inscrivez-vous dès aujourd’hui et commencez à vendre votre savoir, vos conseils et vos créations de manière professionnelle.
-        </p>
+      <section id="final-cta" className="max-w-5xl w-full mx-auto px-4 py-24 flex flex-col items-center text-center gap-8">
+        <div className="w-full rounded-[28px] bg-linear-to-br from-accent-corail via-pink-500 to-purple-600 p-10 sm:p-16 flex flex-col items-center gap-8 relative overflow-hidden shadow-2xl">
+          {/* Decorative elements */}
+          <div className="absolute top-0 right-0 w-[200px] h-[200px] rounded-full bg-white/10 blur-[60px] pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-[150px] h-[150px] rounded-full bg-white/10 blur-[50px] pointer-events-none" />
+          
+          <h2 className="font-display text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight max-w-2xl relative z-10">
+            Rejoignez la révolution de la monétisation en Afrique
+          </h2>
+          <p className="text-base text-white/80 max-w-lg mx-auto relative z-10">
+            Inscrivez-vous dès aujourd'hui et commencez à vendre votre savoir, vos conseils et vos créations de manière professionnelle.
+          </p>
 
-        <div className="flex flex-col sm:flex-row items-center gap-4 w-full justify-center max-w-md">
-          <Link
-            to="/auth/signup"
-            className="w-full px-8 py-4 rounded-full text-sm font-semibold bg-accent-corail text-white hover:bg-accent-corail-hover transition-all duration-200 cursor-pointer shadow-lg shadow-accent-corail/10 flex items-center justify-center gap-2"
-          >
-            <span>Créer mon compte créateur</span>
-            <ArrowRight size={16} />
-          </Link>
-        </div>
+          <div className="flex flex-col sm:flex-row items-center gap-4 w-full justify-center max-w-md relative z-10">
+            <Link
+              to="/auth/signup"
+              className="w-full sm:w-auto px-10 py-4 rounded-full text-sm font-bold bg-white text-accent-corail hover:bg-gray-50 hover:scale-105 hover:shadow-xl transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap"
+            >
+              <span>Créer mon compte créateur</span>
+              <ArrowRight size={16} />
+            </Link>
+          </div>
 
-        <div className="flex items-center gap-6 text-[11px] uppercase tracking-wider font-semibold opacity-75 mt-4">
-          <span>🇹🇬 Togo</span>
-          <span>🇨🇮 Côte d’Ivoire</span>
-          <span>🇸🇳 Sénégal</span>
-          <span>🇨🇲 Cameroun</span>
+          <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 text-[11px] uppercase tracking-wider font-bold text-white/70 mt-2 relative z-10">
+            <span>🇹🇬 Togo</span>
+            <span>🇨🇮 Côte d'Ivoire</span>
+            <span>🇸🇳 Sénégal</span>
+            <span>🇨🇲 Cameroun</span>
+          </div>
         </div>
       </section>
 
