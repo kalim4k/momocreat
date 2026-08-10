@@ -14,9 +14,10 @@ import {
   Sun, 
   Moon, 
   ArrowRight, 
-  UploadCloud, 
-  Share2, 
-  Coins, 
+  UploadCloud,
+  Share2,
+  Coins,
+  Wallet,
   Sparkles, 
   Lock, 
   Check, 
@@ -33,8 +34,7 @@ import {
   Globe,
   Quote,
   Youtube,
-  ShoppingBag,
-  Play
+  ShoppingBag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
@@ -45,6 +45,7 @@ import PlatformImpact from './components/PlatformImpact';
 import { Content } from './types';
 import Login from './pages/auth/Login';
 import Signup from './pages/auth/Signup';
+import AuthCallback from './pages/auth/Callback';
 import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import CreatorPublicProfile from './pages/CreatorPublicProfile';
@@ -140,7 +141,8 @@ export default function App() {
             {/* Auth Pages (Redirect to dashboard if already logged in) */}
             <Route path="/auth/login" element={<AuthRoute><Login /></AuthRoute>} />
             <Route path="/auth/signup" element={<AuthRoute><Signup /></AuthRoute>} />
-            
+            <Route path="/auth/callback" element={<AuthCallback />} />
+
             {/* Protected Creator Pages */}
             <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -211,6 +213,14 @@ export function LandingPage() {
   const [activeWordIdx, setActiveWordIdx] = useState(0);
   const words = ["PDF 📄", "Formations 🎓", "Vidéos 🎥", "Photos 📸", "Audios 🎵"];
   const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(null);
+
+  // Official brand marks (Simple Icons CDN) for the platforms creators sell on
+  const socialPlatforms = [
+    { name: "TikTok", slug: "tiktok", iconColor: "000000" },
+    { name: "Instagram", slug: "instagram", iconColor: "E1306C" },
+    { name: "YouTube", slug: "youtube", iconColor: "FF0000" },
+    { name: "Snapchat", slug: "snapchat", iconColor: "FFFC00" },
+  ];
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -439,40 +449,44 @@ export function LandingPage() {
         </div>
       </header>
 
-      {/* Hero Section with Relative and Overflow-Visible for absolute floating elements */}
-      <section id="hero" className="relative max-w-6xl w-full mx-auto px-4 md:px-12 pt-20 pb-16 flex flex-col items-center text-center gap-6 overflow-visible">
+      {/* Hero Section - outer full-width wrapper so floating badges sit in the margins, never over the text column */}
+      <div className="relative w-full">
         {/* Premium Background Elements */}
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808008_1px,transparent_1px),linear-gradient(to_bottom,#80808008_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none -z-10 opacity-80" />
-        <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[320px] h-[320px] sm:w-[450px] sm:h-[450px] rounded-full bg-accent-corail/8 blur-[100px] pointer-events-none -z-10" />
-        <div className="absolute top-40 left-1/3 w-[200px] h-[200px] rounded-full bg-purple-500/6 blur-[80px] pointer-events-none -z-10" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808030_1px,transparent_1px),linear-gradient(to_bottom,#80808030_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none [mask-image:radial-gradient(ellipse_90%_75%_at_50%_0%,black_55%,transparent_100%)]" />
 
-        {/* Absolute Floating Badges (Visible on desktop and tablets for dynamic styling) */}
-        {floatingLogos.map((logo, idx) => (
+        {/* Floating social badges - icon + name, gently tilted & bobbing, desktop-wide only so they never overlap the text column */}
+        {socialPlatforms.map((platform, idx) => (
           <motion.div
-            key={idx}
-            className={`absolute ${logo.position} hidden md:flex items-center justify-center bg-white p-2 rounded-[14px] border border-border-custom/60 shadow-lg hover:scale-110 hover:shadow-xl hover:border-accent-corail/30 transition-all duration-300 z-10 w-12 h-12 lg:w-16 lg:h-16`}
+            key={platform.slug}
+            className={`hidden xl:flex absolute ${idx % 2 === 0 ? 'left-6 2xl:left-14' : 'right-6 2xl:right-14'} items-center gap-2 px-3 py-2 rounded-2xl bg-bg-surface border ${styles.border} shadow-md z-10`}
+            style={{ top: `${14 + idx * 24}%` }}
+            initial={{ rotate: idx % 2 === 0 ? -6 : 6 }}
             animate={{
               y: [0, -10, 0],
+              rotate: idx % 2 === 0 ? [-6, -2, -6] : [6, 2, 6],
             }}
             transition={{
-              duration: logo.duration,
+              duration: 5 + idx * 0.6,
               repeat: Infinity,
               ease: "easeInOut",
-              delay: logo.delay,
+              delay: idx * 0.4,
             }}
           >
             <img
-              src={logo.url}
-              alt={`Paiement floating ${idx + 1}`}
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-contain rounded-[10px]"
+              src={`https://cdn.simpleicons.org/${platform.slug}/${platform.iconColor}`}
+              alt=""
+              className="w-4 h-4 shrink-0"
             />
+            <span className={`text-xs font-bold ${styles.textPrimary}`}>{platform.name}</span>
           </motion.div>
         ))}
 
+        <section id="hero" className="relative max-w-5xl w-full mx-auto px-4 md:px-12 pt-12 sm:pt-16 pb-24 flex flex-col items-center text-center gap-8 overflow-visible">
+        <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[380px] h-[380px] sm:w-[520px] sm:h-[520px] rounded-full bg-accent-corail/6 blur-[120px] pointer-events-none" />
+
         {/* Animated Hero Text Content */}
         <motion.div
-          className="flex flex-col items-center text-center gap-6"
+          className="flex flex-col items-center text-center gap-8"
           initial="hidden"
           animate="visible"
           variants={{
@@ -492,11 +506,8 @@ export function LandingPage() {
               hidden: { opacity: 0, y: 15 },
               visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100 } }
             }}
-            className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-linear-to-r from-accent-corail/8 to-purple-600/8 text-accent-corail text-xs font-bold border border-accent-corail/15 shadow-[0_4px_15px_rgba(225,79,48,0.04)] backdrop-blur-md relative overflow-hidden group select-none shrink-0"
+            className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-accent-corail/8 text-accent-corail text-xs font-bold border border-accent-corail/15 select-none shrink-0"
           >
-            {/* Glossy reflection shimmer */}
-            <div className="absolute inset-0 w-1/2 h-full bg-white/20 skew-x-12 -translate-x-full animate-[shimmer_3.5s_infinite_ease-out] pointer-events-none" />
-            
             {/* Live Indicator pulse */}
             <span className="relative flex h-2 w-2 shrink-0">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-corail opacity-75"></span>
@@ -512,10 +523,10 @@ export function LandingPage() {
               hidden: { opacity: 0, y: 25 },
               visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 80, damping: 15 } }
             }}
-            className="font-display text-4xl sm:text-6xl font-extrabold tracking-tight leading-tight max-w-4xl text-text-primary"
+            className="font-display text-5xl sm:text-7xl font-extrabold tracking-tight leading-[1.05] max-w-4xl text-text-primary"
           >
             Vendez vos{" "}
-            <span className="bg-clip-text text-transparent bg-linear-to-r from-accent-corail via-pink-500 to-purple-600 relative inline-flex justify-center h-[48px] sm:h-[80px] min-w-[130px] sm:min-w-[280px] overflow-hidden align-bottom pb-1 font-extrabold">
+            <span className="relative inline-flex justify-center h-[56px] sm:h-[92px] overflow-hidden align-bottom pb-1 font-extrabold">
               <AnimatePresence mode="wait">
                 <motion.span
                   key={activeWordIdx}
@@ -523,7 +534,7 @@ export function LandingPage() {
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: -35, opacity: 0 }}
                   transition={{ duration: 0.35, ease: "easeInOut" }}
-                  className="absolute left-0 right-0 text-center font-extrabold"
+                  className="whitespace-nowrap text-center font-extrabold bg-clip-text text-transparent bg-linear-to-r from-accent-corail via-pink-500 to-purple-600"
                 >
                   {words[activeWordIdx]}
                 </motion.span>
@@ -542,6 +553,29 @@ export function LandingPage() {
           >
             Vendez vos guides, formations, photos ou vidéos exclusifs directement à vos abonnés au Togo, en Côte d’Ivoire, au Sénégal et au Cameroun. Vos fans paient en un clic via <strong>Wave, Orange, MTN ou Moov</strong>.
           </motion.p>
+
+          {/* Platform pills - tablet/small-desktop only (hidden on mobile, and on xl+ where the floating side badges take over) */}
+          <motion.div
+            variants={{
+              hidden: { opacity: 0, y: 10 },
+              visible: { opacity: 1, y: 0, transition: { delay: 0.25, duration: 0.5 } }
+            }}
+            className="hidden sm:flex xl:hidden flex-wrap items-center justify-center gap-2"
+          >
+            {socialPlatforms.map((platform) => (
+              <span
+                key={platform.slug}
+                className={`inline-flex items-center gap-1.5 pl-2 pr-3 py-1.5 rounded-full border ${styles.border} ${styles.textSecondary} text-xs font-semibold`}
+              >
+                <img
+                  src={`https://cdn.simpleicons.org/${platform.slug}/${platform.iconColor}`}
+                  alt=""
+                  className="w-3.5 h-3.5 shrink-0"
+                />
+                {platform.name}
+              </span>
+            ))}
+          </motion.div>
 
           {/* Inline payment row - Only displayed on mobile screen viewports */}
           <motion.div 
@@ -574,26 +608,17 @@ export function LandingPage() {
               hidden: { opacity: 0, scale: 0.95 },
               visible: { opacity: 1, scale: 1, transition: { type: "spring", stiffness: 100 } }
             }}
-            className="flex flex-col sm:flex-row items-center gap-4 mt-4 w-full justify-center animate-fade-in"
+            className="flex items-center justify-center mt-4 w-full animate-fade-in"
           >
-            {/* Primary button */}
+            {/* Primary button - single CTA */}
             <Link
               id="hero-primary-cta"
               to="/auth/signup"
-              className="w-full sm:w-auto px-8 py-4 rounded-full text-sm font-bold bg-accent-corail text-white hover:bg-accent-corail-hover hover:scale-105 hover:shadow-[0_0_24px_rgba(225,79,48,0.35)] transition-all duration-200 cursor-pointer shadow-lg shadow-accent-corail/25 flex items-center justify-center gap-2 whitespace-nowrap"
+              className="w-full sm:w-auto px-8 py-4 rounded-full text-sm font-bold bg-accent-corail text-white hover:bg-accent-corail-hover hover:scale-[1.02] transition-all duration-200 cursor-pointer shadow-md shadow-accent-corail/20 flex items-center justify-center gap-2 whitespace-nowrap"
             >
               <span>Devenir créateur (Gratuit)</span>
               <ArrowRight size={16} />
             </Link>
-
-            {/* Secondary button */}
-            <a
-              href="#live-demo"
-              className={`w-full sm:w-auto px-8 py-4 rounded-full text-sm font-bold border ${styles.border} ${isDarkMode ? 'bg-neutral-900/40 text-white hover:bg-neutral-800' : 'bg-white text-text-primary hover:bg-gray-50'} hover:scale-105 transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap shadow-xs`}
-            >
-              <span>Voir la démo</span>
-              <Play size={14} className="shrink-0 animate-pulse" />
-            </a>
           </motion.div>
 
           {/* Active Users Social Proof Badge */}
@@ -639,7 +664,8 @@ export function LandingPage() {
             </span>
           </motion.div>
         </motion.div>
-      </section>
+        </section>
+      </div>
 
       {/* Infinite Scrolling Marquee of Social Networks */}
       <section className={`py-8 border-b ${styles.border} overflow-hidden bg-bg-surface`}>
@@ -686,12 +712,14 @@ export function LandingPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Step 1 */}
-            <div className={`p-7 rounded-[20px] border ${styles.surface} flex flex-col gap-5 relative overflow-hidden group hover:shadow-lg hover:border-accent-corail/20 transition-all duration-300`}>
-              <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-accent-corail to-pink-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <div className="p-3.5 rounded-xl bg-accent-corail/10 text-accent-corail w-fit group-hover:bg-accent-corail group-hover:text-white transition-all duration-300">
-                <UploadCloud size={24} />
+            <div className={`p-7 rounded-[20px] border ${styles.surface} flex flex-col gap-5 relative overflow-hidden group hover:shadow-md hover:border-accent-corail/20 transition-all duration-300`}>
+              <div className="absolute top-0 left-0 w-full h-1 bg-accent-corail opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="flex items-center justify-between">
+                <div className="p-3.5 rounded-xl bg-accent-corail/10 text-accent-corail w-fit group-hover:bg-accent-corail group-hover:text-white transition-all duration-300">
+                  <UploadCloud size={24} />
+                </div>
+                <span className={`text-xs font-bold ${styles.textSecondary} opacity-50`}>01</span>
               </div>
-              <div className="absolute top-5 right-6 text-6xl font-display font-extrabold bg-clip-text text-transparent bg-linear-to-br from-accent-corail/10 to-pink-500/10 select-none">1</div>
               <h3 className="font-display text-lg font-medium">1. Créez & fixez votre prix</h3>
               <p className={`text-sm ${styles.textSecondary} leading-relaxed`}>
                 Importez votre PDF, vidéo ou document confidentiel. Fixez un prix unique en FCFA (ex: 2 500 FCFA). Nous générons un lien sécurisé.
@@ -699,12 +727,14 @@ export function LandingPage() {
             </div>
 
             {/* Step 2 */}
-            <div className={`p-7 rounded-[20px] border ${styles.surface} flex flex-col gap-5 relative overflow-hidden group hover:shadow-lg hover:border-accent-corail/20 transition-all duration-300`}>
-              <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-pink-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <div className="p-3.5 rounded-xl bg-accent-corail/10 text-accent-corail w-fit group-hover:bg-accent-corail group-hover:text-white transition-all duration-300">
-                <Share2 size={24} />
+            <div className={`p-7 rounded-[20px] border ${styles.surface} flex flex-col gap-5 relative overflow-hidden group hover:shadow-md hover:border-accent-corail/20 transition-all duration-300`}>
+              <div className="absolute top-0 left-0 w-full h-1 bg-accent-corail opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="flex items-center justify-between">
+                <div className="p-3.5 rounded-xl bg-accent-corail/10 text-accent-corail w-fit group-hover:bg-accent-corail group-hover:text-white transition-all duration-300">
+                  <Share2 size={24} />
+                </div>
+                <span className={`text-xs font-bold ${styles.textSecondary} opacity-50`}>02</span>
               </div>
-              <div className="absolute top-5 right-6 text-6xl font-display font-extrabold bg-clip-text text-transparent bg-linear-to-br from-pink-500/10 to-purple-500/10 select-none">2</div>
               <h3 className="font-display text-lg font-medium">2. Partagez votre lien</h3>
               <p className={`text-sm ${styles.textSecondary} leading-relaxed`}>
                 Ajoutez le lien dans votre bio TikTok, Instagram ou envoyez-le sur Snapchat. Vos fans accèdent directement à votre page sans inscription.
@@ -712,12 +742,14 @@ export function LandingPage() {
             </div>
 
             {/* Step 3 */}
-            <div className={`p-7 rounded-[20px] border ${styles.surface} flex flex-col gap-5 relative overflow-hidden group hover:shadow-lg hover:border-accent-corail/20 transition-all duration-300`}>
-              <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-purple-500 to-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <div className="p-3.5 rounded-xl bg-accent-corail/10 text-accent-corail w-fit group-hover:bg-accent-corail group-hover:text-white transition-all duration-300">
-                <Coins size={24} />
+            <div className={`p-7 rounded-[20px] border ${styles.surface} flex flex-col gap-5 relative overflow-hidden group hover:shadow-md hover:border-accent-corail/20 transition-all duration-300`}>
+              <div className="absolute top-0 left-0 w-full h-1 bg-accent-corail opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="flex items-center justify-between">
+                <div className="p-3.5 rounded-xl bg-accent-corail/10 text-accent-corail w-fit group-hover:bg-accent-corail group-hover:text-white transition-all duration-300">
+                  <Wallet size={24} />
+                </div>
+                <span className={`text-xs font-bold ${styles.textSecondary} opacity-50`}>03</span>
               </div>
-              <div className="absolute top-5 right-6 text-6xl font-display font-extrabold bg-clip-text text-transparent bg-linear-to-br from-purple-500/10 to-emerald-500/10 select-none">3</div>
               <h3 className="font-display text-lg font-medium">3. Encaissez directement</h3>
               <p className={`text-sm ${styles.textSecondary} leading-relaxed`}>
                 Les acheteurs paient en Mobile Money. Vos fonds s'accumulent instantanément. Demandez vos retraits en Wave, Orange ou MTN à tout moment.
@@ -1150,10 +1182,9 @@ export function LandingPage() {
 
       {/* Footer Final CTA */}
       <section id="final-cta" className="max-w-5xl w-full mx-auto px-4 py-24 flex flex-col items-center text-center gap-8">
-        <div className="w-full rounded-[28px] bg-linear-to-br from-accent-corail via-pink-500 to-purple-600 p-10 sm:p-16 flex flex-col items-center gap-8 relative overflow-hidden shadow-2xl">
-          {/* Decorative elements */}
-          <div className="absolute top-0 right-0 w-[200px] h-[200px] rounded-full bg-white/10 blur-[60px] pointer-events-none" />
-          <div className="absolute bottom-0 left-0 w-[150px] h-[150px] rounded-full bg-white/10 blur-[50px] pointer-events-none" />
+        <div className="w-full rounded-[28px] bg-linear-to-br from-accent-corail to-purple-600 p-10 sm:p-16 flex flex-col items-center gap-8 relative overflow-hidden shadow-xl">
+          {/* Decorative element */}
+          <div className="absolute top-0 right-0 w-[220px] h-[220px] rounded-full bg-white/10 blur-[70px] pointer-events-none" />
           
           <h2 className="font-display text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight max-w-2xl relative z-10">
             Rejoignez la révolution de la monétisation en Afrique
@@ -1165,7 +1196,7 @@ export function LandingPage() {
           <div className="flex flex-col sm:flex-row items-center gap-4 w-full justify-center max-w-md relative z-10">
             <Link
               to="/auth/signup"
-              className="w-full sm:w-auto px-10 py-4 rounded-full text-sm font-bold bg-white text-accent-corail hover:bg-gray-50 hover:scale-105 hover:shadow-xl transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap"
+              className="w-full sm:w-auto px-10 py-4 rounded-full text-sm font-bold bg-white text-accent-corail hover:bg-gray-50 hover:scale-[1.02] hover:shadow-lg transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap"
             >
               <span>Créer mon compte créateur</span>
               <ArrowRight size={16} />

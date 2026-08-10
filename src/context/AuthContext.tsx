@@ -16,6 +16,7 @@ interface AuthContextType {
   error: string | null;
   signUp: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string; hasProfile?: boolean }>;
+  signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
   createProfile: (profileData: Omit<CreatorProfile, 'id' | 'created_at'>) => Promise<{ success: boolean; error?: string }>;
   updateProfile: (profileData: Partial<CreatorProfile>) => Promise<{ success: boolean; error?: string }>;
@@ -229,6 +230,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { success: false, error: err.message || 'Identifiants invalides.' };
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Sign In with Google (Supabase-hosted OAuth redirect)
+  const signInWithGoogle = async () => {
+    setError(null);
+    if (isDemoMode || !supabase) {
+      const msg = 'La connexion Google nécessite une configuration Supabase active.';
+      setError(msg);
+      return { success: false, error: msg };
+    }
+    try {
+      const { error: err } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${window.location.origin}/auth/callback` },
+      });
+      if (err) throw err;
+      // Browser is redirected to Google; nothing else to do here.
+      return { success: true };
+    } catch (err: any) {
+      setError(err.message || 'Erreur lors de la connexion avec Google.');
+      return { success: false, error: err.message };
     }
   };
 
@@ -480,9 +503,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading, 
       isDemoMode, 
       error, 
-      signUp, 
-      signIn, 
-      signOut, 
+      signUp,
+      signIn,
+      signInWithGoogle,
+      signOut,
       createProfile, 
       updateProfile,
       checkUsernameUnique,
