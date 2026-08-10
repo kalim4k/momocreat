@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { useToast } from '../../components/admin/Toast';
 
 interface Creator {
   id: string;
@@ -71,6 +72,7 @@ interface CreatorDetails {
 
 export default function AdminCreators() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [creators, setCreators] = useState<Creator[]>([]);
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -197,7 +199,7 @@ export default function AdminCreators() {
       }
     } catch (err) {
       console.error(err);
-      alert('Erreur lors du changement de statut.');
+      showToast('Erreur lors du changement de statut.', 'error');
     } finally {
       setIsTogglingStatus(null);
     }
@@ -217,7 +219,7 @@ export default function AdminCreators() {
     } catch (err) {
       console.error(err);
       setSelectedCreatorId(null);
-      alert('Impossible de charger les détails du créateur.');
+      showToast('Impossible de charger les détails du créateur.', 'error');
     } finally {
       setIsLoadingDetails(false);
     }
@@ -256,10 +258,10 @@ export default function AdminCreators() {
         return c;
       }));
 
-      alert('Quota de boutiques mis à jour avec succès !');
+      showToast('Quota de boutiques mis à jour avec succès !');
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Impossible de mettre à jour le quota.');
+      showToast(err.message || 'Impossible de mettre à jour le quota.', 'error');
     } finally {
       setIsUpdatingQuota(false);
     }

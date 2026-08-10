@@ -1,20 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Search, 
-  Loader2, 
-  Trash2, 
-  Eye, 
-  Lock, 
-  Unlock, 
+import {
+  Search,
+  Loader2,
+  Trash2,
+  Eye,
+  Lock,
+  Unlock,
   AlertTriangle,
   FileText,
   Video,
   Image as ImageIcon,
   Music,
-  Filter
+  Filter,
+  X,
+  ExternalLink
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { useToast } from '../../components/admin/Toast';
+import { ConfirmDialog } from '../../components/admin/ConfirmDialog';
 
 interface ContentItem {
   id: string;
@@ -26,6 +30,9 @@ interface ContentItem {
   status: 'published' | 'draft' | 'archived' | 'removed';
   is_published: boolean;
   created_at: string;
+  thumbnail_url?: string | null;
+  preview_url?: string | null;
+  file_url?: string | null;
   creator?: {
     display_name: string;
     username: string;
@@ -33,8 +40,16 @@ interface ContentItem {
   };
 }
 
+interface PendingConfirm {
+  title: string;
+  message: string;
+  danger?: boolean;
+  action: () => Promise<void>;
+}
+
 export default function AdminContents() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [contents, setContents] = useState<ContentItem[]>([]);
   const [search, setSearch] = useState('');
   const [type, setType] = useState('all');
@@ -42,6 +57,9 @@ export default function AdminContents() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [previewItem, setPreviewItem] = useState<ContentItem | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
+  const [isConfirmSubmitting, setIsConfirmSubmitting] = useState(false);
 
   useEffect(() => {
     fetchContents();
@@ -88,12 +106,8 @@ export default function AdminContents() {
     return () => clearTimeout(delayDebounce);
   }, [search]);
 
-  const handleToggleStatus = async (id: string, currentStatus: string) => {
+  const performToggleStatus = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === 'published' ? 'archived' : 'published';
-    const actionLabel = currentStatus === 'published' ? 'archiver' : 'publier';
-    
-    if (!window.confirm(`Voulez-vous ${actionLabel} ce contenu ?`)) return;
-
     try {
       setActionLoading(id);
       const headers = await getHeaders();
@@ -107,17 +121,25 @@ export default function AdminContents() {
       const result = await res.json();
 
       setContents(prev => prev.map(c => c.id === id ? { ...c, status: result.status, is_published: result.is_published } : c));
+      showToast(newStatus === 'published' ? 'Contenu publié avec succès.' : 'Contenu archivé avec succès.');
     } catch (err) {
       console.error(err);
-      alert('Une erreur est survenue lors de la modification du statut.');
+      showToast('Une erreur est survenue lors de la modification du statut.', 'error');
     } finally {
       setActionLoading(null);
     }
   };
 
-  const handleDeleteContent = async (id: string) => {
-    if (!window.confirm('Êtes-vous SÛR de vouloir supprimer ce contenu définitivement ? Cette action est irréversible.')) return;
+  const handleToggleStatus = (id: string, currentStatus: string) => {
+    const actionLabel = currentStatus === 'published' ? 'archiver' : 'publier';
+    setPendingConfirm({
+      title: `${actionLabel === 'archiver' ? 'Archiver' : 'Publier'} ce contenu ?`,
+      message: `Voulez-vous ${actionLabel} ce contenu ? ${actionLabel === 'archiver' ? "Il ne sera plus visible sur le profil du créateur." : 'Il redeviendra visible sur le profil du créateur.'}`,
+      action: () => performToggleStatus(id, currentStatus)
+    });
+  };
 
+  const performDeleteContent = async (id: string) => {
     try {
       setActionLoading(id);
       const headers = await getHeaders();
@@ -128,11 +150,32 @@ export default function AdminContents() {
 
       if (!res.ok) throw new Error('Erreur lors de la suppression.');
       setContents(prev => prev.filter(c => c.id !== id));
+      showToast('Contenu supprimé définitivement.');
     } catch (err) {
       console.error(err);
-      alert('Une erreur est survenue lors de la suppression.');
+      showToast('Une erreur est survenue lors de la suppression.', 'error');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleDeleteContent = (id: string) => {
+    setPendingConfirm({
+      title: 'Supprimer ce contenu ?',
+      message: 'Êtes-vous SÛR de vouloir supprimer ce contenu définitivement ? Cette action est irréversible.',
+      danger: true,
+      action: () => performDeleteContent(id)
+    });
+  };
+
+  const handleConfirmAction = async () => {
+    if (!pendingConfirm) return;
+    setIsConfirmSubmitting(true);
+    try {
+      await pendingConfirm.action();
+    } finally {
+      setIsConfirmSubmitting(false);
+      setPendingConfirm(null);
     }
   };
 
@@ -291,6 +334,16 @@ export default function AdminContents() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex items-center justify-end gap-2">
+                        {/* Preview Button */}
+                        <button
+                          onClick={() => setPreviewItem(item)}
+                          className="p-1.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 rounded-lg transition-colors cursor-pointer"
+                          title="Aperçu"
+                          id={`btn-preview-${item.id}`}
+                        >
+                          <Eye size={14} />
+                        </button>
+
                         {/* Toggle Status Button */}
                         <button
                           onClick={() => handleToggleStatus(item.id, item.status)}
@@ -324,6 +377,76 @@ export default function AdminContents() {
           </div>
         </div>
       )}
+
+      {/* Content Preview Modal */}
+      {previewItem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[90] p-4">
+          <div className="w-full max-w-lg bg-bg-surface border border-border-custom rounded-2xl p-6 shadow-2xl relative animate-fade-in max-h-[85vh] overflow-y-auto">
+            <button
+              onClick={() => setPreviewItem(null)}
+              className="absolute top-4 right-4 p-1.5 rounded-full border border-border-custom hover:bg-bg-primary text-text-secondary hover:text-text-primary transition-all cursor-pointer"
+            >
+              <X size={14} />
+            </button>
+
+            {(previewItem.thumbnail_url || previewItem.preview_url) && previewItem.content_type === 'image' ? (
+              <img
+                src={previewItem.thumbnail_url || previewItem.preview_url || ''}
+                alt={previewItem.title}
+                className="w-full h-48 object-cover rounded-xl mb-4 border border-border-custom"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-full h-32 rounded-xl mb-4 border border-border-custom bg-bg-primary flex items-center justify-center text-accent-corail">
+                {getContentTypeIcon(previewItem.content_type)}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 mb-2">
+              {getStatusBadge(previewItem.status)}
+              <span className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">{previewItem.content_type}</span>
+            </div>
+
+            <h3 className="font-display text-lg font-semibold text-text-primary">{previewItem.title}</h3>
+            <p className="text-sm text-text-secondary mt-1.5 leading-relaxed">{previewItem.description || 'Aucune description fournie.'}</p>
+
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <div className="p-3 rounded-lg bg-bg-primary border border-border-custom">
+                <span className="text-[10px] font-bold uppercase text-text-secondary block">Prix</span>
+                <span className="text-sm font-bold font-mono text-text-primary">{previewItem.price_fcfa.toLocaleString()} FCFA</span>
+              </div>
+              <div className="p-3 rounded-lg bg-bg-primary border border-border-custom">
+                <span className="text-[10px] font-bold uppercase text-text-secondary block">Créateur</span>
+                <span className="text-sm font-semibold text-text-primary">@{previewItem.creator?.username || 'inconnu'}</span>
+              </div>
+            </div>
+
+            {previewItem.file_url && (
+              <a
+                href={previewItem.file_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 w-full mt-4 py-2.5 rounded-lg text-xs font-bold bg-accent-corail/10 text-accent-corail hover:bg-accent-corail hover:text-white transition-all"
+              >
+                <ExternalLink size={14} />
+                Ouvrir le fichier source
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        open={!!pendingConfirm}
+        title={pendingConfirm?.title || ''}
+        message={pendingConfirm?.message || ''}
+        danger={pendingConfirm?.danger}
+        isSubmitting={isConfirmSubmitting}
+        confirmLabel={pendingConfirm?.danger ? 'Supprimer' : 'Confirmer'}
+        onConfirm={handleConfirmAction}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }

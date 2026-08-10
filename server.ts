@@ -519,6 +519,269 @@ app.get('/api/payment/check-status', async (req, res) => {
 
 
 /**
+ * POST /api/payment/create-donation-cart
+ * Initiates a free-amount Maketou checkout so a fan can send a creator a direct donation.
+ * Mirrors /api/payment/create-cart, but the amount is chosen by the donor instead of coming from a content row.
+ */
+app.post('/api/payment/create-donation-cart', async (req, res) => {
+  const { creatorId, amount, donorName, donorEmail, donorMessage } = req.body;
+
+  if (!creatorId || !amount || !donorName) {
+    return res.status(400).json({ error: 'Champs obligatoires manquants (creatorId, amount, donorName).' });
+  }
+
+  const donationAmount = Math.round(Number(amount));
+  if (!Number.isFinite(donationAmount) || donationAmount < 1000) {
+    return res.status(400).json({ error: 'Le montant du don doit être d\'au moins 1000 FCFA.' });
+  }
+
+  try {
+    let creator: any = null;
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('creator_profiles')
+        .select('*')
+        .eq('id', creatorId)
+        .maybeSingle();
+      if (error) {
+        console.error('[Server] Supabase error fetching creator for donation:', error);
+      }
+      creator = data;
+    }
+
+    if (!creator) {
+      const localCreators = serverDb.getCreators();
+      creator = localCreators.find((c: any) => c.id === creatorId);
+    }
+
+    if (!creator) {
+      return res.status(404).json({ error: 'Créateur non trouvé.' });
+    }
+
+    // Same commission rate applied to content purchases (server.ts create-cart handler)
+    const commission_amount = Math.round(donationAmount * 0.18);
+    const creator_net_amount = donationAmount - commission_amount;
+
+    let donationId = `donation_${Math.random().toString(36).substring(2, 11)}`;
+
+    if (supabase) {
+      try {
+        const { data: donData, error: donErr } = await supabase
+          .from('donations')
+          .insert({
+            creator_id: creatorId,
+            donor_name: donorName,
+            donor_email: donorEmail || null,
+            donor_message: donorMessage || null,
+            status: 'pending',
+            amount_fcfa: donationAmount,
+            commission_amount_fcfa: commission_amount,
+            creator_net_amount_fcfa: creator_net_amount,
+            payment_reference: 'temp_ref_' + Date.now()
+          })
+          .select()
+          .single();
+
+        if (!donErr && donData) {
+          donationId = donData.id;
+        } else {
+          console.error('[Server] Supabase donation insertion warning:', donErr);
+        }
+      } catch (dbErr) {
+        console.error('[Server] DB writing exception:', dbErr);
+      }
+    }
+
+    serverDb.addDonation({
+      id: donationId,
+      creatorId,
+      donorName,
+      donorEmail,
+      donorMessage,
+      status: 'pending',
+      paymentReference: '',
+      amount: donationAmount,
+      commissionAmount: commission_amount,
+      creatorNetAmount: creator_net_amount
+    });
+
+    const isMaketouConfigured = process.env.MAKETOU_API_KEY && process.env.MAKETOU_PRODUCT_ID;
+
+    if (isMaketouConfigured) {
+      const appUrl = getAppUrl();
+      const redirectURL = `${appUrl}/payment/confirm?cartId={cartId}&purchaseId=${donationId}&kind=donation`;
+
+      const [donorFirstName, ...rest] = (donorName as string).trim().split(' ');
+      const donorLastName = rest.join(' ') || donorFirstName;
+
+      const requestBody = {
+        productDocumentId: process.env.MAKETOU_PRODUCT_ID,
+        email: donorEmail || 'anonyme@momolink.pro',
+        firstName: donorFirstName,
+        lastName: donorLastName,
+        customerPrice: donationAmount,
+        redirectURL: redirectURL,
+        meta: { donationId, creatorId }
+      };
+
+      const maketouRes = await fetch('https://api.maketou.net/api/v1/stores/cart/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.MAKETOU_API_KEY}`
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!maketouRes.ok) {
+        const errorText = await maketouRes.text();
+        console.error('[Server] Maketou API error (donation):', errorText);
+        throw new Error(`Erreur Maketou API: ${maketouRes.statusText}`);
+      }
+
+      const maketouData = await maketouRes.json();
+      const cart = maketouData.cart || maketouData || {};
+      const cartId = cart.id || cart.cartId || cart.uuid || maketouData.id || maketouData.cartId || maketouData.cart_id || maketouData.uuid;
+      const redirectUrl = maketouData.redirectUrl || maketouData.checkoutUrl || maketouData.checkout_url || maketouData.url || maketouData.paymentUrl || maketouData.payment_url || cart.redirectUrl || cart.checkoutUrl || cart.checkout_url || cart.url || cart.paymentUrl || cart.payment_url;
+
+      if (!cartId || !redirectUrl) {
+        console.error('[Server] Missing keys in Maketou donation response. Full response:', JSON.stringify(maketouData));
+        throw new Error(`Données de panier ou d'URL de redirection manquantes dans la réponse Maketou. Réponse reçue: ${JSON.stringify(maketouData)}`);
+      }
+
+      serverDb.updateDonation(donationId, { paymentReference: cartId });
+      serverDb.addTransaction({ provider: 'maketou', providerTransactionId: cartId, status: 'pending', type: 'purchase' });
+
+      if (supabase) {
+        try {
+          await supabase.from('donations').update({ payment_reference: cartId }).eq('id', donationId);
+        } catch (dbErr) {
+          console.warn('[Server] Supabase donation reference update skipped:', dbErr);
+        }
+      }
+
+      return res.json({ redirectUrl });
+
+    } else {
+      console.log('[Server] Maketou not configured. Simulating donation checkout redirect.');
+      const mockCartId = `mock_cart_${Math.random().toString(36).substring(2, 11)}`;
+      serverDb.updateDonation(donationId, { paymentReference: mockCartId });
+      serverDb.addTransaction({ provider: 'maketou', providerTransactionId: mockCartId, status: 'pending', type: 'purchase' });
+
+      const appUrl = getAppUrl();
+      const simulatedRedirectUrl = `${appUrl}/payment/confirm?cartId=${mockCartId}&purchaseId=${donationId}&kind=donation`;
+      return res.json({ redirectUrl: simulatedRedirectUrl });
+    }
+
+  } catch (err: any) {
+    console.error('[Server] Create Donation Cart handler error:', err);
+    return res.status(500).json({ error: err.message || 'Une erreur interne est survenue lors de l\'initialisation du don.' });
+  }
+});
+
+
+/**
+ * GET /api/payment/check-donation-status
+ * Verifies donation cart status with Maketou or simulation, and finalizes the donation.
+ * Mirrors /api/payment/check-status for content purchases.
+ */
+app.get('/api/payment/check-donation-status', async (req, res) => {
+  const { cartId, purchaseId } = req.query;
+
+  if (!cartId || !purchaseId) {
+    return res.status(400).json({ error: 'Paramètres cartId et purchaseId requis.' });
+  }
+
+  try {
+    const donation = serverDb.getDonation(purchaseId as string);
+    if (!donation) {
+      return res.status(404).json({ error: 'Don non trouvé.' });
+    }
+
+    let creatorUsername = 'michella_coaching';
+    if (supabase) {
+      try {
+        const { data: creatorData } = await supabase
+          .from('creator_profiles')
+          .select('username')
+          .eq('id', donation.creatorId)
+          .maybeSingle();
+        if (creatorData) creatorUsername = creatorData.username;
+      } catch (err) {
+        console.warn('[Server] Error fetching creator username inside check-donation-status:', err);
+      }
+    }
+
+    let statusToSet: 'completed' | 'failed' | 'waiting_payment' = 'waiting_payment';
+    const isMock = (cartId as string).startsWith('mock_') || !process.env.MAKETOU_API_KEY;
+
+    if (isMock) {
+      statusToSet = 'completed';
+    } else {
+      const maketouRes = await fetch(`https://api.maketou.net/api/v1/stores/cart/${cartId}`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${process.env.MAKETOU_API_KEY}` }
+      });
+
+      if (!maketouRes.ok) {
+        console.error('[Server] Maketou donation status check error:', maketouRes.statusText);
+        return res.status(500).json({ error: 'Impossible de vérifier le statut auprès de Maketou.' });
+      }
+
+      const cartData = await maketouRes.json();
+      const cartStatus = cartData.status || cartData.cart?.status;
+
+      if (cartStatus === 'completed' || cartStatus === 'success') {
+        statusToSet = 'completed';
+      } else if (cartStatus === 'payment_failed' || cartStatus === 'failed' || cartStatus === 'abandoned') {
+        statusToSet = 'failed';
+      } else {
+        statusToSet = 'waiting_payment';
+      }
+    }
+
+    if (statusToSet === 'completed') {
+      serverDb.updateDonation(donation.id, { status: 'completed' });
+      serverDb.updateTransactionByCart(cartId as string, { status: 'success' });
+
+      if (supabase) {
+        try {
+          await supabase.from('donations').update({ status: 'completed' }).eq('id', donation.id);
+          try {
+            await supabase.from('transactions').update({ status: 'success' }).eq('provider_transaction_id', cartId);
+          } catch (e) {}
+        } catch (dbErr) {
+          console.error('[Server] Supabase donation completed write warning:', dbErr);
+        }
+      }
+
+      return res.json({ status: 'completed', creatorUsername, amount: donation.amount });
+
+    } else if (statusToSet === 'failed') {
+      serverDb.updateDonation(donation.id, { status: 'failed' });
+      serverDb.updateTransactionByCart(cartId as string, { status: 'failed' });
+
+      if (supabase) {
+        try {
+          await supabase.from('donations').update({ status: 'failed' }).eq('id', donation.id);
+        } catch (dbErr) {
+          console.error('[Server] Supabase donation failed write warning:', dbErr);
+        }
+      }
+
+      return res.json({ status: 'failed', creatorUsername });
+    } else {
+      return res.json({ status: 'waiting_payment', creatorUsername });
+    }
+
+  } catch (err: any) {
+    console.error('[Server] Donation status verification error:', err);
+    return res.status(500).json({ error: err.message || 'Erreur lors de la vérification.' });
+  }
+});
+
+
+/**
  * POST /api/payment/create-anonymous-cart
  * Initiates an anonymous cart checkout for 2500 FCFA on Maketou without database storage.
  */
@@ -1925,20 +2188,72 @@ app.get('/api/admin/kpis', async (req, res) => {
   }
 });
 
-// 3. GET /api/admin/chart -> revenue of the last 30 days
+// 3. GET /api/admin/chart -> platform commission revenue over a selectable period
+// ?range=7d|30d|90d|365d|custom (default 30d), plus &start=YYYY-MM-DD&end=YYYY-MM-DD when range=custom.
+// Bucket granularity auto-adapts to the period length, mirroring the creator dashboard's revenue chart.
 app.get('/api/admin/chart', async (req, res) => {
   try {
-    const last30Days: Record<string, number> = {};
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-      last30Days[dateStr] = 0;
+    const range = (req.query.range as string) || '30d';
+    const customStart = req.query.start as string;
+    const customEnd = req.query.end as string;
+
+    const now = new Date();
+    now.setHours(23, 59, 59, 999);
+    let startDate: Date;
+    let endDate = now;
+
+    if (range === 'custom' && customStart && customEnd) {
+      startDate = new Date(customStart);
+      endDate = new Date(customEnd);
+      endDate.setHours(23, 59, 59, 999);
+    } else {
+      const daysBack = range === '7d' ? 6 : range === '30d' ? 29 : range === '90d' ? 89 : 364;
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - daysBack);
+      startDate.setHours(0, 0, 0, 0);
     }
 
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 30);
+    if (startDate > endDate) [startDate, endDate] = [endDate, startDate];
+
+    const totalDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1);
+    const granularity: 'day' | 'week' | 'month' = totalDays <= 31 ? 'day' : totalDays <= 180 ? 'week' : 'month';
+
+    const buckets: { date: string; bucketStart: Date; revenu: number }[] = [];
+
+    if (granularity === 'month') {
+      const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+      while (cursor <= endDate) {
+        buckets.push({
+          date: cursor.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }),
+          bucketStart: new Date(cursor),
+          revenu: 0
+        });
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+    } else {
+      const step = granularity === 'week' ? 7 : 1;
+      const cursor = new Date(startDate);
+      while (cursor <= endDate) {
+        buckets.push({
+          date: granularity === 'week'
+            ? `Sem. du ${cursor.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`
+            : cursor.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }),
+          bucketStart: new Date(cursor),
+          revenu: 0
+        });
+        cursor.setDate(cursor.getDate() + step);
+      }
+    }
+
+    const findBucketIndex = (d: Date) => {
+      for (let idx = buckets.length - 1; idx >= 0; idx--) {
+        if (d >= buckets[idx].bucketStart) return idx;
+      }
+      return -1;
+    };
+
     const startDateStr = startDate.toISOString();
+    const endDateStr = endDate.toISOString();
     let usedFallback = false;
 
     if (supabaseAdmin) {
@@ -1947,17 +2262,14 @@ app.get('/api/admin/chart', async (req, res) => {
           .from('purchases')
           .select('commission_amount_fcfa, created_at')
           .eq('status', 'completed')
-          .gte('created_at', startDateStr);
+          .gte('created_at', startDateStr)
+          .lte('created_at', endDateStr);
         if (err1) throw err1;
 
-        if (purchases) {
-          purchases.forEach(p => {
-            const dateLabel = new Date(p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-            if (last30Days[dateLabel] !== undefined) {
-              last30Days[dateLabel] += p.commission_amount_fcfa || 0;
-            }
-          });
-        }
+        (purchases || []).forEach(p => {
+          const idx = findBucketIndex(new Date(p.created_at));
+          if (idx >= 0) buckets[idx].revenu += p.commission_amount_fcfa || 0;
+        });
       } catch (dbErr) {
         console.warn('[Server] Supabase query failed for chart, falling back to mock data:', dbErr);
         usedFallback = true;
@@ -1966,20 +2278,15 @@ app.get('/api/admin/chart', async (req, res) => {
 
     if (!supabaseAdmin || usedFallback) {
       const purchases = serverDb.getPurchases();
-      purchases.filter(p => p.status === 'completed' && p.createdAt >= startDateStr).forEach(p => {
-        const dateLabel = new Date(p.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-        if (last30Days[dateLabel] !== undefined) {
-          last30Days[dateLabel] += p.commissionAmount || 0;
-        }
-      });
+      purchases
+        .filter(p => p.status === 'completed' && p.createdAt >= startDateStr && p.createdAt <= endDateStr)
+        .forEach(p => {
+          const idx = findBucketIndex(new Date(p.createdAt));
+          if (idx >= 0) buckets[idx].revenu += p.commissionAmount || 0;
+        });
     }
 
-    const chartData = Object.keys(last30Days).map(key => ({
-      date: key,
-      revenu: last30Days[key]
-    }));
-
-    return res.json(chartData);
+    return res.json(buckets.map(b => ({ date: b.date, revenu: b.revenu })));
   } catch (err: any) {
     console.error('[Server] Admin chart error:', err);
     return res.status(500).json({ error: 'Erreur lors de la génération du graphique.' });
@@ -3026,6 +3333,117 @@ app.delete('/api/admin/contents/:id', async (req, res) => {
   } catch (err: any) {
     console.error('[Server] Admin content delete error:', err);
     return res.status(500).json({ error: 'Erreur lors de la suppression du contenu.' });
+  }
+});
+
+
+// 16. GET /api/admin/donations -> all donations received across every creator, for moderation/support
+app.get('/api/admin/donations', async (req, res) => {
+  const search = ((req.query.search as string) || '').toLowerCase().trim();
+  try {
+    let donations: any[] = [];
+
+    if (supabaseAdmin) {
+      const { data, error } = await supabaseAdmin
+        .from('donations')
+        .select('*, creator_profiles(display_name, username, avatar_url)')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      donations = data || [];
+    }
+
+    const filtered = search
+      ? donations.filter((d: any) =>
+          (d.creator_profiles?.display_name || '').toLowerCase().includes(search) ||
+          (d.creator_profiles?.username || '').toLowerCase().includes(search) ||
+          (d.donor_name || '').toLowerCase().includes(search)
+        )
+      : donations;
+
+    return res.json(filtered);
+  } catch (err: any) {
+    console.error('[Server] Admin donations list error:', err);
+    return res.status(500).json({ error: 'Erreur lors de la récupération des dons.' });
+  }
+});
+
+// 17. GET /api/admin/messages -> all messages + partnership proposals sent to every creator profile
+app.get('/api/admin/messages', async (req, res) => {
+  const search = ((req.query.search as string) || '').toLowerCase().trim();
+  try {
+    let messages: any[] = [];
+
+    if (supabaseAdmin) {
+      const { data, error } = await supabaseAdmin
+        .from('profile_messages')
+        .select('*, creator_profiles(display_name, username, avatar_url)')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      messages = data || [];
+    }
+
+    const filtered = search
+      ? messages.filter((m: any) =>
+          (m.creator_profiles?.display_name || '').toLowerCase().includes(search) ||
+          (m.creator_profiles?.username || '').toLowerCase().includes(search) ||
+          (m.sender_name || '').toLowerCase().includes(search) ||
+          (m.body || '').toLowerCase().includes(search)
+        )
+      : messages;
+
+    return res.json(filtered);
+  } catch (err: any) {
+    console.error('[Server] Admin messages list error:', err);
+    return res.status(500).json({ error: 'Erreur lors de la récupération des messages.' });
+  }
+});
+
+// 18. POST /api/admin/creators/:id/grant-premium -> manually grant/extend a creator's premium access
+app.post('/api/admin/creators/:id/grant-premium', async (req, res) => {
+  const { id } = req.params;
+  const days = Number(req.body?.days) || 30;
+
+  if (!Number.isFinite(days) || days <= 0 || days > 365) {
+    return res.status(400).json({ error: 'Le nombre de jours doit être compris entre 1 et 365.' });
+  }
+
+  try {
+    if (supabaseAdmin) {
+      const { data: creator, error: fetchErr } = await supabaseAdmin
+        .from('creator_profiles')
+        .select('is_premium, premium_expires_at')
+        .eq('id', id)
+        .maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!creator) return res.status(404).json({ error: 'Créateur introuvable.' });
+
+      const now = new Date();
+      const currentExpiry = creator.is_premium && creator.premium_expires_at ? new Date(creator.premium_expires_at) : now;
+      const base = currentExpiry.getTime() > now.getTime() ? currentExpiry : now;
+      const newExpiry = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+
+      const { error: updateErr } = await supabaseAdmin
+        .from('creator_profiles')
+        .update({ is_premium: true, premium_expires_at: newExpiry.toISOString() })
+        .eq('id', id);
+      if (updateErr) throw updateErr;
+
+      return res.json({ success: true, premium_expires_at: newExpiry.toISOString() });
+    } else {
+      const creator = serverDb.getCreators().find((c: any) => c.id === id);
+      if (!creator) return res.status(404).json({ error: 'Créateur introuvable.' });
+
+      const now = new Date();
+      const currentExpiry = creator.is_premium && creator.premium_expires_at ? new Date(creator.premium_expires_at) : now;
+      const base = currentExpiry.getTime() > now.getTime() ? currentExpiry : now;
+      const newExpiry = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+
+      serverDb.updateCreator(id, { is_premium: true, premium_expires_at: newExpiry.toISOString() });
+      return res.json({ success: true, premium_expires_at: newExpiry.toISOString() });
+    }
+  } catch (err: any) {
+    console.error('[Server] Grant premium error:', err);
+    return res.status(500).json({ error: 'Erreur lors de l\'attribution du premium.' });
   }
 });
 

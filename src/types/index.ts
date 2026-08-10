@@ -24,6 +24,8 @@ export interface CreatorProfile {
   status?: 'active' | 'inactive';
   created_at: string;
   store_quota?: number;
+  is_premium?: boolean;
+  premium_expires_at?: string | null;
 }
 
 export interface Content {
@@ -74,6 +76,31 @@ export interface Withdrawal {
   status: 'pending' | 'approved' | 'paid' | 'rejected';
   requested_at: string;
   processed_at?: string | null;
+}
+
+export interface Donation {
+  id: string;
+  creator_id: string;
+  donor_name: string;
+  donor_email?: string | null;
+  donor_message?: string | null;
+  amount_fcfa: number;
+  status: 'pending' | 'completed' | 'failed';
+  payment_reference?: string | null;
+  commission_amount_fcfa: number;
+  creator_net_amount_fcfa: number;
+  created_at: string;
+}
+
+export interface ProfileMessage {
+  id: string;
+  creator_id: string;
+  type: 'message' | 'partnership';
+  sender_name: string;
+  sender_email: string;
+  body: string;
+  is_read: boolean;
+  created_at: string;
 }
 
 export interface Subscription {

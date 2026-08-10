@@ -21,6 +21,7 @@ export default function PaymentConfirm() {
   
   const cartId = searchParams.get('cartId');
   const purchaseId = searchParams.get('purchaseId');
+  const isDonation = searchParams.get('kind') === 'donation';
 
   const [status, setStatus] = useState<'loading' | 'success' | 'failed' | 'timeout'>('loading');
   const [attempts, setAttempts] = useState(0);
@@ -38,15 +39,17 @@ export default function PaymentConfirm() {
       return;
     }
 
+    const statusEndpoint = isDonation ? '/api/payment/check-donation-status' : '/api/payment/check-status';
+
     const checkPaymentStatus = async () => {
       try {
-        const response = await fetch(`/api/payment/check-status?cartId=${cartId}&purchaseId=${purchaseId}`);
+        const response = await fetch(`${statusEndpoint}?cartId=${cartId}&purchaseId=${purchaseId}`);
         if (!response.ok) {
           throw new Error('Erreur de communication avec le serveur.');
         }
 
         const data = await response.json();
-        
+
         if (data.contentTitle) setContentTitle(data.contentTitle);
         if (data.contentId) setContentId(data.contentId);
         if (data.creatorUsername) setCreatorUsername(data.creatorUsername);
@@ -179,27 +182,45 @@ export default function PaymentConfirm() {
             </div>
             
             <div className="flex flex-col gap-2">
-              <h1 className="font-display text-2xl font-bold tracking-tight text-[#F2B84B]">Paiement réussi !</h1>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-[#F2B84B]">
+                {isDonation ? 'Don envoyé !' : 'Paiement réussi !'}
+              </h1>
               <p className="text-sm text-neutral-400 max-w-[340px] leading-relaxed">
-                Votre contenu <strong className="text-[#FAFAF8]">{contentTitle || 'exclusif'}</strong> est maintenant disponible.
+                {isDonation ? (
+                  <>Merci pour votre soutien, le créateur a bien reçu votre don.</>
+                ) : (
+                  <>Votre contenu <strong className="text-[#FAFAF8]">{contentTitle || 'exclusif'}</strong> est maintenant disponible.</>
+                )}
               </p>
             </div>
 
             <div className="flex flex-col gap-3 w-full mt-6">
-              <button
-                onClick={handleViewContent}
-                className="w-full py-3.5 rounded-xl text-xs font-bold text-black bg-[#F2B84B] hover:bg-[#e0a941] transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow"
-              >
-                <span>Voir le contenu</span>
-                <ArrowRight size={14} />
-              </button>
-              
-              <button
-                onClick={handleRetry}
-                className="w-full py-3.5 rounded-xl text-xs font-semibold text-neutral-400 hover:text-[#FAFAF8] bg-transparent hover:bg-white/5 transition-all cursor-pointer border border-neutral-800"
-              >
-                Retour au profil
-              </button>
+              {isDonation ? (
+                <button
+                  onClick={handleRetry}
+                  className="w-full py-3.5 rounded-xl text-xs font-bold text-black bg-[#F2B84B] hover:bg-[#e0a941] transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow"
+                >
+                  <span>Retour au profil</span>
+                  <ArrowRight size={14} />
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={handleViewContent}
+                    className="w-full py-3.5 rounded-xl text-xs font-bold text-black bg-[#F2B84B] hover:bg-[#e0a941] transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow"
+                  >
+                    <span>Voir le contenu</span>
+                    <ArrowRight size={14} />
+                  </button>
+
+                  <button
+                    onClick={handleRetry}
+                    className="w-full py-3.5 rounded-xl text-xs font-semibold text-neutral-400 hover:text-[#FAFAF8] bg-transparent hover:bg-white/5 transition-all cursor-pointer border border-neutral-800"
+                  >
+                    Retour au profil
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}

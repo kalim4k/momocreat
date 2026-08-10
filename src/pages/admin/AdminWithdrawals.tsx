@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { useToast } from '../../components/admin/Toast';
+import { ConfirmDialog } from '../../components/admin/ConfirmDialog';
 
 interface CreatorProfile {
   id: string;
@@ -37,13 +39,23 @@ interface Withdrawal {
   available_balance?: number; // fetched real-time
 }
 
+interface PendingConfirm {
+  title: string;
+  message: string;
+  danger?: boolean;
+  action: () => Promise<void>;
+}
+
 export default function AdminWithdrawals() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
   const [pendingWithdrawals, setPendingWithdrawals] = useState<Withdrawal[]>([]);
   const [historyWithdrawals, setHistoryWithdrawals] = useState<Withdrawal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
+  const [isConfirmSubmitting, setIsConfirmSubmitting] = useState(false);
 
   // Rejection dialog state
   const [rejectingWithdrawalId, setRejectingWithdrawalId] = useState<string | null>(null);
@@ -106,21 +118,12 @@ export default function AdminWithdrawals() {
     return Object.values(groups).sort((a, b) => b.totalRequested - a.totalRequested);
   }, [pendingWithdrawals]);
 
-  const handlePayConsolidatedWithdrawal = async (group: typeof groupedPendingWithdrawals[0]) => {
-    const isOverdrawing = group.totalAvailableBalance < group.totalRequested;
-    if (isOverdrawing) {
-      const confirmPay = window.confirm(`ATTENTION: Le solde disponible consolidé (${group.totalAvailableBalance.toLocaleString()} FCFA) est inférieur au montant total demandé (${group.totalRequested.toLocaleString()} FCFA). Voulez-vous quand même forcer le paiement consolidé ?`);
-      if (!confirmPay) return;
-    } else {
-      const confirmPay = window.confirm(`Voulez-vous marquer les ${group.requests.length} demandes de retrait d'un montant total de ${group.totalRequested.toLocaleString()} FCFA comme payées ?`);
-      if (!confirmPay) return;
-    }
-
+  const performPayConsolidatedWithdrawal = async (group: typeof groupedPendingWithdrawals[0]) => {
     try {
       setIsSubmittingAction(`group-${group.userId}`);
       const headers = await getHeaders();
-      
-      const payPromises = group.requests.map(w => 
+
+      const payPromises = group.requests.map(w =>
         fetch(`/api/admin/withdrawals/${w.id}/pay`, {
           method: 'POST',
           headers
@@ -132,13 +135,25 @@ export default function AdminWithdrawals() {
 
       await Promise.all(payPromises);
       await fetchWithdrawals(); // Refresh
-      alert('Paiement consolidé validé avec succès !');
+      showToast('Paiement consolidé validé avec succès !');
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Une erreur est survenue lors du traitement du paiement consolidé.');
+      showToast(err.message || 'Une erreur est survenue lors du traitement du paiement consolidé.', 'error');
     } finally {
       setIsSubmittingAction(null);
     }
+  };
+
+  const handlePayConsolidatedWithdrawal = (group: typeof groupedPendingWithdrawals[0]) => {
+    const isOverdrawing = group.totalAvailableBalance < group.totalRequested;
+    setPendingConfirm({
+      title: isOverdrawing ? 'Forcer le paiement consolidé ?' : 'Confirmer le paiement consolidé',
+      message: isOverdrawing
+        ? `ATTENTION : le solde disponible consolidé (${group.totalAvailableBalance.toLocaleString()} FCFA) est inférieur au montant total demandé (${group.totalRequested.toLocaleString()} FCFA). Voulez-vous quand même forcer le paiement consolidé ?`
+        : `Voulez-vous marquer les ${group.requests.length} demandes de retrait d'un montant total de ${group.totalRequested.toLocaleString()} FCFA comme payées ?`,
+      danger: isOverdrawing,
+      action: () => performPayConsolidatedWithdrawal(group)
+    });
   };
 
   useEffect(() => {
@@ -179,15 +194,7 @@ export default function AdminWithdrawals() {
     }
   };
 
-  const handlePayWithdrawal = async (id: string, requestedAmount: number, availableBalance: number) => {
-    if (availableBalance < requestedAmount) {
-      const confirmPay = window.confirm(`ATTENTION: Le solde disponible du créateur (${availableBalance.toLocaleString()} FCFA) est inférieur au montant demandé (${requestedAmount.toLocaleString()} FCFA). Voulez-vous quand même forcer le paiement ?`);
-      if (!confirmPay) return;
-    } else {
-      const confirmPay = window.confirm(`Voulez-vous marquer cette demande de retrait de ${requestedAmount.toLocaleString()} FCFA comme payée ?`);
-      if (!confirmPay) return;
-    }
-
+  const performPayWithdrawal = async (id: string) => {
     try {
       setIsSubmittingAction(id);
       const headers = await getHeaders();
@@ -198,12 +205,35 @@ export default function AdminWithdrawals() {
 
       if (!res.ok) throw new Error('Erreur de validation.');
       await fetchWithdrawals(); // Refresh
-      alert('Paiement validé avec succès !');
+      showToast('Paiement validé avec succès !');
     } catch (err) {
       console.error(err);
-      alert('Une erreur est survenue lors du traitement.');
+      showToast('Une erreur est survenue lors du traitement.', 'error');
     } finally {
       setIsSubmittingAction(null);
+    }
+  };
+
+  const handlePayWithdrawal = (id: string, requestedAmount: number, availableBalance: number) => {
+    const isOverdrawing = availableBalance < requestedAmount;
+    setPendingConfirm({
+      title: isOverdrawing ? 'Forcer le paiement ?' : 'Confirmer le paiement',
+      message: isOverdrawing
+        ? `ATTENTION : le solde disponible du créateur (${availableBalance.toLocaleString()} FCFA) est inférieur au montant demandé (${requestedAmount.toLocaleString()} FCFA). Voulez-vous quand même forcer le paiement ?`
+        : `Voulez-vous marquer cette demande de retrait de ${requestedAmount.toLocaleString()} FCFA comme payée ?`,
+      danger: isOverdrawing,
+      action: () => performPayWithdrawal(id)
+    });
+  };
+
+  const handleConfirmAction = async () => {
+    if (!pendingConfirm) return;
+    setIsConfirmSubmitting(true);
+    try {
+      await pendingConfirm.action();
+    } finally {
+      setIsConfirmSubmitting(false);
+      setPendingConfirm(null);
     }
   };
 
@@ -214,7 +244,7 @@ export default function AdminWithdrawals() {
 
   const handleSubmitRejection = async () => {
     if (!rejectionReason.trim()) {
-      alert('La raison du rejet est obligatoire.');
+      showToast('La raison du rejet est obligatoire.', 'error');
       return;
     }
 
@@ -232,10 +262,10 @@ export default function AdminWithdrawals() {
       setRejectingWithdrawalId(null);
       setRejectionReason('');
       await fetchWithdrawals(); // Refresh
-      alert('La demande de retrait a été rejetée.');
+      showToast('La demande de retrait a été rejetée.');
     } catch (err) {
       console.error(err);
-      alert('Une erreur est survenue.');
+      showToast('Une erreur est survenue.', 'error');
     } finally {
       setIsSubmittingAction(null);
     }
@@ -243,10 +273,10 @@ export default function AdminWithdrawals() {
 
   const getPayoutProviderLogo = (provider: string) => {
     const p = (provider || '').toLowerCase();
-    if (p.includes('wave')) return 'https://momo.link/wave-logo.png'; // Mock or fallback
-    if (p.includes('orange')) return 'https://momo.link/orange-logo.png';
-    if (p.includes('mtn')) return 'https://momo.link/mtn-logo.png';
-    if (p.includes('moov')) return 'https://momo.link/moov-logo.png';
+    if (p.includes('wave')) return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/a8d55466-5d3f-4390-a52c-5c0183b659f2.png';
+    if (p.includes('orange')) return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/7b451d8c-d330-480a-b731-80a611b8d090.png';
+    if (p.includes('mtn')) return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/73ceff4e-a60e-46d0-ade3-292133629a7a.jpg';
+    if (p.includes('moov')) return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/22d27599-04ae-41da-90da-0037542b9dd4.png';
     return null;
   };
 
@@ -344,9 +374,18 @@ export default function AdminWithdrawals() {
                             </td>
                             <td className="px-5 py-3">
                               <div className="flex items-center gap-2">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getPayoutProviderColor(group.payoutProvider)}`}>
-                                  {group.payoutProvider}
-                                </span>
+                                {getPayoutProviderLogo(group.payoutProvider) ? (
+                                  <img
+                                    src={getPayoutProviderLogo(group.payoutProvider)!}
+                                    alt={group.payoutProvider}
+                                    className="w-5 h-5 rounded-full object-cover border border-border-custom shrink-0"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getPayoutProviderColor(group.payoutProvider)}`}>
+                                    {group.payoutProvider}
+                                  </span>
+                                )}
                                 <span className="text-xs font-mono text-text-primary">{group.payoutPhoneNumber}</span>
                               </div>
                             </td>
@@ -526,9 +565,18 @@ export default function AdminWithdrawals() {
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getPayoutProviderColor(w.payout_provider)}`}>
-                            {w.payout_provider}
-                          </span>
+                          {getPayoutProviderLogo(w.payout_provider) ? (
+                            <img
+                              src={getPayoutProviderLogo(w.payout_provider)!}
+                              alt={w.payout_provider}
+                              className="w-5 h-5 rounded-full object-cover border border-border-custom shrink-0"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getPayoutProviderColor(w.payout_provider)}`}>
+                              {w.payout_provider}
+                            </span>
+                          )}
                           <span className="text-xs font-mono text-text-secondary">{w.payout_phone_number}</span>
                         </div>
                       </td>
@@ -608,6 +656,17 @@ export default function AdminWithdrawals() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!pendingConfirm}
+        title={pendingConfirm?.title || ''}
+        message={pendingConfirm?.message || ''}
+        danger={pendingConfirm?.danger}
+        isSubmitting={isConfirmSubmitting}
+        confirmLabel={pendingConfirm?.danger ? 'Forcer le paiement' : 'Confirmer'}
+        onConfirm={handleConfirmAction}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }

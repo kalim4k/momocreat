@@ -24,16 +24,19 @@ CREATE TABLE IF NOT EXISTS public.creator_profiles (
 ALTER TABLE public.creator_profiles ENABLE ROW LEVEL SECURITY;
 
 -- Politiques de securite RLS
-CREATE POLICY "Les profils sont publics" 
-    ON public.creator_profiles FOR SELECT 
+DROP POLICY IF EXISTS "Les profils sont publics" ON public.creator_profiles;
+CREATE POLICY "Les profils sont publics"
+    ON public.creator_profiles FOR SELECT
     USING (true);
 
-CREATE POLICY "Les createurs peuvent inserer leur propre profil" 
-    ON public.creator_profiles FOR INSERT 
+DROP POLICY IF EXISTS "Les createurs peuvent inserer leur propre profil" ON public.creator_profiles;
+CREATE POLICY "Les createurs peuvent inserer leur propre profil"
+    ON public.creator_profiles FOR INSERT
     WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Les createurs peuvent modifier leur propre profil" 
-    ON public.creator_profiles FOR UPDATE 
+DROP POLICY IF EXISTS "Les createurs peuvent modifier leur propre profil" ON public.creator_profiles;
+CREATE POLICY "Les createurs peuvent modifier leur propre profil"
+    ON public.creator_profiles FOR UPDATE
     USING (auth.uid() = user_id);
 
 
@@ -55,12 +58,14 @@ CREATE TABLE IF NOT EXISTS public.contents (
 
 ALTER TABLE public.contents ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Les contenus publies sont visibles par tous" 
-    ON public.contents FOR SELECT 
+DROP POLICY IF EXISTS "Les contenus publies sont visibles par tous" ON public.contents;
+CREATE POLICY "Les contenus publies sont visibles par tous"
+    ON public.contents FOR SELECT
     USING (is_published = true);
 
-CREATE POLICY "Les createurs peuvent gerer leurs propres contenus" 
-    ON public.contents FOR ALL 
+DROP POLICY IF EXISTS "Les createurs peuvent gerer leurs propres contenus" ON public.contents;
+CREATE POLICY "Les createurs peuvent gerer leurs propres contenus"
+    ON public.contents FOR ALL
     USING (auth.uid() IN (
         SELECT user_id FROM public.creator_profiles WHERE id = creator_id
     ));
@@ -81,14 +86,16 @@ CREATE TABLE IF NOT EXISTS public.purchases (
 
 ALTER TABLE public.purchases ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Les acheteurs peuvent voir leurs propres achats via reference ou ID" 
-    ON public.purchases FOR SELECT 
+DROP POLICY IF EXISTS "Les acheteurs peuvent voir leurs propres achats via reference ou ID" ON public.purchases;
+CREATE POLICY "Les acheteurs peuvent voir leurs propres achats via reference ou ID"
+    ON public.purchases FOR SELECT
     USING (true); -- Securise en pratique par requetes ciblees
 
-CREATE POLICY "Les createurs peuvent voir les achats de leurs contenus" 
-    ON public.purchases FOR SELECT 
+DROP POLICY IF EXISTS "Les createurs peuvent voir les achats de leurs contenus" ON public.purchases;
+CREATE POLICY "Les createurs peuvent voir les achats de leurs contenus"
+    ON public.purchases FOR SELECT
     USING (auth.uid() IN (
-        SELECT cp.user_id 
+        SELECT cp.user_id
         FROM public.creator_profiles cp
         JOIN public.contents c ON c.creator_id = cp.id
         WHERE c.id = content_id
@@ -270,9 +277,85 @@ CREATE POLICY "Les créateurs connectés peuvent modifier leur propre avatar" ON
 DROP POLICY IF EXISTS "Les créateurs connectés peuvent supprimer leur propre avatar" ON storage.objects;
 CREATE POLICY "Les créateurs connectés peuvent supprimer leur propre avatar" ON storage.objects
     FOR DELETE USING (
-        bucket_id = 'avatars' 
+        bucket_id = 'avatars'
         AND auth.role() = 'authenticated'
     );
+
+
+-- ==========================================
+-- DONS & MESSAGES / PARTENARIATS SUR LE PROFIL PUBLIC
+-- (À copier-coller et exécuter dans l'éditeur SQL de Supabase)
+-- ==========================================
+
+-- 1. Table des dons
+CREATE TABLE IF NOT EXISTS public.donations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    creator_id UUID REFERENCES public.creator_profiles(id) ON DELETE CASCADE NOT NULL,
+    donor_name VARCHAR(60) NOT NULL,
+    donor_email VARCHAR(120),
+    donor_message VARCHAR(300),
+    amount_fcfa INT NOT NULL CHECK (amount_fcfa >= 1000),
+    status VARCHAR(20) DEFAULT 'pending' NOT NULL CHECK (status IN ('pending', 'completed', 'failed')),
+    payment_reference VARCHAR(100) UNIQUE,
+    commission_amount_fcfa INT NOT NULL DEFAULT 0,
+    creator_net_amount_fcfa INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.donations ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Les dons sont insérables par tous" ON public.donations;
+CREATE POLICY "Les dons sont insérables par tous"
+    ON public.donations FOR INSERT
+    WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Les créateurs voient leurs dons" ON public.donations;
+CREATE POLICY "Les créateurs voient leurs dons"
+    ON public.donations FOR SELECT
+    USING (auth.uid() IN (
+        SELECT user_id FROM public.creator_profiles WHERE id = creator_id
+    ));
+
+-- 2. Table unifiée messages / propositions de partenariat
+CREATE TABLE IF NOT EXISTS public.profile_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    creator_id UUID REFERENCES public.creator_profiles(id) ON DELETE CASCADE NOT NULL,
+    type VARCHAR(20) NOT NULL CHECK (type IN ('message', 'partnership')),
+    sender_name VARCHAR(60) NOT NULL,
+    sender_email VARCHAR(120) NOT NULL,
+    body TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT false NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.profile_messages ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Les messages sont insérables par tous" ON public.profile_messages;
+CREATE POLICY "Les messages sont insérables par tous"
+    ON public.profile_messages FOR INSERT
+    WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Les créateurs voient leurs messages" ON public.profile_messages;
+CREATE POLICY "Les créateurs voient leurs messages"
+    ON public.profile_messages FOR SELECT
+    USING (auth.uid() IN (
+        SELECT user_id FROM public.creator_profiles WHERE id = creator_id
+    ));
+
+DROP POLICY IF EXISTS "Les créateurs marquent leurs messages comme lus" ON public.profile_messages;
+CREATE POLICY "Les créateurs marquent leurs messages comme lus"
+    ON public.profile_messages FOR UPDATE
+    USING (auth.uid() IN (
+        SELECT user_id FROM public.creator_profiles WHERE id = creator_id
+    ));
+
+-- 3. Index de performance
+CREATE INDEX IF NOT EXISTS idx_donations_creator_id ON public.donations(creator_id);
+CREATE INDEX IF NOT EXISTS idx_profile_messages_creator_id ON public.profile_messages(creator_id);
+
+-- Sécurité si la table 'donations' a déjà été créée avec l'ancien minimum de 500 FCFA :
+ALTER TABLE public.donations DROP CONSTRAINT IF EXISTS donations_amount_fcfa_check;
+ALTER TABLE public.donations ADD CONSTRAINT donations_amount_fcfa_check CHECK (amount_fcfa >= 1000);
 
 
 

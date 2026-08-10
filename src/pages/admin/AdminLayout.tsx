@@ -1,20 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Users, 
-  Wallet, 
-  Calendar, 
-  History, 
-  LogOut, 
-  Menu, 
+import {
+  LayoutDashboard,
+  Users,
+  Wallet,
+  Calendar,
+  History,
+  LogOut,
+  Menu,
   X,
   User,
   FileText,
+  Heart,
   PanelLeftClose,
   PanelLeftOpen
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
+import { ToastProvider } from '../../components/admin/Toast';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -28,14 +31,47 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const [isAdminSidebarCollapsed, setIsAdminSidebarCollapsed] = useState(() => {
     return localStorage.getItem('momo_admin_sidebar_collapsed') === 'true';
   });
+  const [pendingWithdrawalsCount, setPendingWithdrawalsCount] = useState(0);
+
+  useEffect(() => {
+    const fetchPendingCount = async () => {
+      try {
+        let token = '';
+        if (supabase) {
+          const { data: { session } } = await supabase.auth.getSession();
+          token = session?.access_token || '';
+        }
+        if (!token && user) token = user.email || '';
+
+        const res = await fetch('/api/admin/withdrawals', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Admin-Email': user?.email || ''
+          }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setPendingWithdrawalsCount((data.pending || []).length);
+      } catch (err) {
+        console.error('[AdminLayout] Error fetching pending withdrawals count:', err);
+      }
+    };
+
+    if (user) {
+      fetchPendingCount();
+      const interval = setInterval(fetchPendingCount, 60000);
+      return () => clearInterval(interval);
+    }
+  }, [user, location.pathname]);
 
   const navigation = [
-    { name: 'Vue d\'ensemble', href: '/admin', icon: LayoutDashboard },
-    { name: 'Créateurs', href: '/admin/creators', icon: Users },
-    { name: 'Contenus', href: '/admin/contents', icon: FileText },
-    { name: 'Retraits', href: '/admin/withdrawals', icon: Wallet },
-    { name: 'Abonnements', href: '/admin/subscriptions', icon: Calendar },
-    { name: 'Transactions', href: '/admin/transactions', icon: History },
+    { name: 'Vue d\'ensemble', href: '/admin', icon: LayoutDashboard, section: null as string | null },
+    { name: 'Créateurs', href: '/admin/creators', icon: Users, section: 'Modération' },
+    { name: 'Contenus', href: '/admin/contents', icon: FileText, section: 'Modération' },
+    { name: 'Dons & Messages', href: '/admin/donations-messages', icon: Heart, section: 'Modération' },
+    { name: 'Retraits', href: '/admin/withdrawals', icon: Wallet, badge: pendingWithdrawalsCount > 0 ? pendingWithdrawalsCount : undefined, section: 'Finances' },
+    { name: 'Transactions', href: '/admin/transactions', icon: History, section: 'Finances' },
+    { name: 'Abonnements', href: '/admin/subscriptions', icon: Calendar, section: 'Finances' },
   ];
 
   const handleLogout = async () => {
@@ -55,6 +91,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   };
 
   return (
+    <ToastProvider>
     <div className="min-h-screen bg-bg-primary text-text-primary font-sans flex flex-col md:flex-row">
       {/* Mobile Top Bar */}
       <div className="md:hidden bg-bg-surface border-b border-border-custom px-4 py-3 flex items-center justify-between sticky top-0 z-40">
@@ -114,27 +151,45 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
         {/* Navigation Items */}
         <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-          {navigation.map((item) => {
+          {navigation.map((item, idx) => {
             const active = isActive(item.href);
+            const prevSection = idx > 0 ? navigation[idx - 1].section : null;
+            const showSectionHeader = !!item.section && item.section !== prevSection;
             return (
+              <React.Fragment key={item.name}>
+              {showSectionHeader && !isAdminSidebarCollapsed && (
+                <span className="block px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-text-secondary opacity-50">
+                  {item.section}
+                </span>
+              )}
               <Link
-                key={item.name}
                 to={item.href}
                 onClick={() => setIsMobileMenuOpen(false)}
                 title={isAdminSidebarCollapsed ? item.name : undefined}
                 className={`
                   flex items-center rounded-lg text-sm font-medium transition-all duration-200
-                  ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-4 py-3'}
-                  ${active 
-                    ? 'bg-bg-primary text-accent-corail border-l-2 border-accent-corail pl-3.5' 
+                  ${isAdminSidebarCollapsed ? 'justify-center p-3' : 'justify-between gap-3 px-4 py-3'}
+                  ${active
+                    ? 'bg-bg-primary text-accent-corail border-l-2 border-accent-corail pl-3.5'
                     : 'text-text-secondary hover:text-text-primary hover:bg-bg-primary/40'
                   }
                 `}
                 id={`nav-${item.href.replace('/admin', 'admin')}`}
               >
-                <item.icon size={18} className={active ? 'text-accent-corail shrink-0' : 'text-text-secondary shrink-0'} />
-                {!isAdminSidebarCollapsed && <span>{item.name}</span>}
+                <div className="flex items-center gap-3 relative">
+                  <item.icon size={18} className={active ? 'text-accent-corail shrink-0' : 'text-text-secondary shrink-0'} />
+                  {!isAdminSidebarCollapsed && <span>{item.name}</span>}
+                  {isAdminSidebarCollapsed && !!item.badge && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  )}
+                </div>
+                {!isAdminSidebarCollapsed && !!item.badge && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold min-w-[18px] text-center">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
+              </React.Fragment>
             );
           })}
         </nav>
@@ -185,11 +240,12 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
       {/* Backdrop for mobile sidebar */}
       {isMobileMenuOpen && (
-        <div 
+        <div
           onClick={() => setIsMobileMenuOpen(false)}
           className="fixed inset-0 z-20 bg-black/60 backdrop-blur-sm md:hidden"
         />
       )}
     </div>
+    </ToastProvider>
   );
 }

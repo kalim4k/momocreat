@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Sparkles, Eye, EyeOff, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 
 function GoogleIcon() {
@@ -88,22 +88,32 @@ export default function Signup() {
 
   return (
     <div className="min-h-screen bg-bg-primary flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden font-sans">
-      
+
       {/* Background radial highlight */}
       <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-accent-corail/5 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] rounded-full bg-success-gold/5 blur-[120px] pointer-events-none" />
 
-      <motion.div 
+      {/* Logo - click to return home */}
+      <Link
+        to="/"
+        className="flex items-center gap-2.5 mb-8 z-10 opacity-90 hover:opacity-100 transition-opacity"
+      >
+        <img
+          src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png"
+          alt="MomoLink Logo"
+          className="h-9 w-9 object-contain rounded-lg"
+        />
+        <span className="font-display text-xl font-semibold tracking-tight text-text-primary">MomoLink</span>
+      </Link>
+
+      <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
         className="w-full max-w-md bg-bg-surface border border-border-custom p-8 rounded-[24px] shadow-xl z-10"
       >
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-full bg-accent-corail/15 flex items-center justify-center border border-accent-corail/35 mb-4">
-            <Sparkles className="text-accent-corail h-6 w-6" />
-          </div>
-          <h2 className="font-display text-3xl font-medium tracking-tight text-center text-text-primary">
+          <h2 className="font-display text-2xl font-semibold tracking-tight text-center text-text-primary">
             Créer votre compte
           </h2>
           <p className="text-xs text-text-secondary mt-1.5 text-center">

@@ -80,12 +80,50 @@ export default function AdminTransactions() {
     return () => clearTimeout(delayDebounce);
   }, [search]);
 
+  const handleExportCsv = () => {
+    if (transactions.length === 0) return;
+
+    const headers = ['Date', 'Type', 'Créateur', 'Acheteur', 'Montant (FCFA)', 'Commission (FCFA)', 'Statut', 'Référence'];
+    const escapeCsv = (value: string) => `"${String(value).replace(/"/g, '""')}"`;
+    const rows = transactions.map((tx) => [
+      new Date(tx.date).toLocaleString('fr-FR'),
+      tx.type === 'purchase' ? 'Achat' : 'Abonnement',
+      tx.creatorName,
+      tx.buyerEmail,
+      tx.amount,
+      tx.commission,
+      tx.status,
+      tx.providerTxId || ''
+    ].map(escapeCsv).join(','));
+
+    const csvContent = [headers.map(escapeCsv).join(','), ...rows].join('\n');
+    const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `transactions_momolink_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6" id="admin-transactions-container">
       {/* Title Header */}
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-text-primary">Historique des Transactions</h1>
-        <p className="text-text-secondary text-sm mt-1">Consulter l'intégralité des flux financiers, achats de contenus et frais d'abonnements.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-text-primary">Historique des Transactions</h1>
+          <p className="text-text-secondary text-sm mt-1">Consulter l'intégralité des flux financiers, achats de contenus et frais d'abonnements.</p>
+        </div>
+        <button
+          onClick={handleExportCsv}
+          disabled={transactions.length === 0}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-accent-corail/10 text-accent-corail hover:bg-accent-corail hover:text-white text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+        >
+          <FileSpreadsheet size={14} />
+          Exporter en CSV
+        </button>
       </div>
 
       {/* Interactive controls block */}

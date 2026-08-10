@@ -21,7 +21,10 @@ import {
   Download, 
   UserCheck,
   Share2,
-  ExternalLink
+  ExternalLink,
+  Heart,
+  Mail,
+  Send
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -64,6 +67,117 @@ export default function CreatorPublicProfile() {
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const [copied, setCopied] = useState(false);
+
+  // Donation modal
+  const [isDonationModalOpen, setIsDonationModalOpen] = useState(false);
+  const [donationAmount, setDonationAmount] = useState<number>(1000);
+  const [donorName, setDonorName] = useState('');
+  const [donorEmail, setDonorEmail] = useState('');
+  const [donorMessage, setDonorMessage] = useState('');
+  const [isDonating, setIsDonating] = useState(false);
+  const [donationError, setDonationError] = useState<string | null>(null);
+
+  // Contact / partnership modal
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [contactType, setContactType] = useState<'message' | 'partnership'>('message');
+  const [senderName, setSenderName] = useState('');
+  const [senderEmail, setSenderEmail] = useState('');
+  const [contactBody, setContactBody] = useState('');
+  const [isSendingContact, setIsSendingContact] = useState(false);
+  const [contactError, setContactError] = useState<string | null>(null);
+  const [contactSent, setContactSent] = useState(false);
+
+  const handleDonationSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile || !donorName.trim() || donationAmount < 1000) return;
+
+    setIsDonating(true);
+    setDonationError(null);
+
+    try {
+      const res = await fetch('/api/payment/create-donation-cart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          creatorId: profile.id,
+          amount: donationAmount,
+          donorName: donorName.trim(),
+          donorEmail: donorEmail.trim() || undefined,
+          donorMessage: donorMessage.trim() || undefined
+        })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Erreur lors de la création du don.');
+      }
+
+      const data = await res.json();
+      if (data.redirectUrl) {
+        window.location.href = data.redirectUrl;
+      } else {
+        throw new Error('Redirection URL non fournie par le serveur.');
+      }
+    } catch (err: any) {
+      setDonationError(err.message || 'Une erreur est survenue.');
+      setIsDonating(false);
+    }
+  };
+
+  const handleContactSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile || !senderName.trim() || !senderEmail.trim() || !contactBody.trim()) return;
+
+    setIsSendingContact(true);
+    setContactError(null);
+
+    try {
+      if (!isDemoMode) {
+        const supabaseClient = getSupabaseClient();
+        if (supabaseClient) {
+          const { error: err } = await supabaseClient
+            .from('profile_messages')
+            .insert({
+              creator_id: profile.id,
+              type: contactType,
+              sender_name: senderName.trim(),
+              sender_email: senderEmail.trim(),
+              body: contactBody.trim()
+            });
+          if (err) throw err;
+        }
+      } else {
+        const localMessages = JSON.parse(localStorage.getItem('momo_local_messages') || '[]');
+        localMessages.unshift({
+          id: `msg_${Math.random().toString(36).substring(2, 11)}`,
+          creator_id: profile.id,
+          type: contactType,
+          sender_name: senderName.trim(),
+          sender_email: senderEmail.trim(),
+          body: contactBody.trim(),
+          is_read: false,
+          created_at: new Date().toISOString()
+        });
+        localStorage.setItem('momo_local_messages', JSON.stringify(localMessages));
+      }
+
+      setContactSent(true);
+    } catch (err: any) {
+      setContactError(err.message || 'Une erreur est survenue lors de l\'envoi.');
+    } finally {
+      setIsSendingContact(false);
+    }
+  };
+
+  const closeContactModal = () => {
+    setIsContactModalOpen(false);
+    setContactSent(false);
+    setContactError(null);
+    setSenderName('');
+    setSenderEmail('');
+    setContactBody('');
+    setContactType('message');
+  };
 
   const handleShareProfile = async () => {
     try {
@@ -527,11 +641,16 @@ export default function CreatorPublicProfile() {
       {/* Top Banner & Buyer verification bar */}
       <div className="border-b border-gray-200 bg-white/70 backdrop-blur px-4 py-3 sticky top-0 z-40">
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
+          <Link to="/" className="flex items-center gap-1.5 opacity-90 hover:opacity-100 transition-opacity">
+            <img
+              src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png"
+              alt="MomoLink Logo"
+              className="h-6 w-6 object-contain rounded-md"
+            />
             <span className="font-display font-bold text-sm tracking-tight text-neutral-900">
-              MomoLink <span className="text-accent-corail text-xs font-semibold">Pro</span>
+              MomoLink {profile.is_premium && <span className="text-accent-corail text-xs font-semibold">Pro</span>}
             </span>
-          </div>
+          </Link>
 
           <div className="flex items-center gap-3">
             {verifiedEmail ? (
@@ -669,23 +788,41 @@ export default function CreatorPublicProfile() {
             )}
           </div>
 
-          {/* Share profile button */}
-          <button
-            onClick={handleShareProfile}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-gray-200 hover:border-accent-corail text-xs font-semibold text-gray-700 hover:text-accent-corail transition-all cursor-pointer shadow-sm active:scale-95"
-          >
-            {copied ? (
-              <>
-                <Check size={14} className="text-green-500" strokeWidth={3} />
-                <span className="text-green-600 font-bold">Lien copié !</span>
-              </>
-            ) : (
-              <>
-                <Share2 size={14} />
-                <span>Partager le profil</span>
-              </>
-            )}
-          </button>
+          {/* Action buttons: share, donate, contact */}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button
+              onClick={handleShareProfile}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-gray-200 hover:border-accent-corail text-xs font-semibold text-gray-700 hover:text-accent-corail transition-all cursor-pointer shadow-sm active:scale-95"
+            >
+              {copied ? (
+                <>
+                  <Check size={14} className="text-green-500" strokeWidth={3} />
+                  <span className="text-green-600 font-bold">Lien copié !</span>
+                </>
+              ) : (
+                <>
+                  <Share2 size={14} />
+                  <span>Partager le profil</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => { setDonationError(null); setIsDonationModalOpen(true); }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-gray-200 hover:border-pink-400 text-xs font-semibold text-gray-700 hover:text-pink-500 transition-all cursor-pointer shadow-sm active:scale-95"
+            >
+              <Heart size={14} />
+              <span>Faire un don</span>
+            </button>
+
+            <button
+              onClick={() => setIsContactModalOpen(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-gray-200 hover:border-accent-corail text-xs font-semibold text-gray-700 hover:text-accent-corail transition-all cursor-pointer shadow-sm active:scale-95"
+            >
+              <Mail size={14} />
+              <span>Contacter</span>
+            </button>
+          </div>
 
           {/* Social Links line */}
           {profile.social_links && Object.keys(profile.social_links).length > 0 && (
@@ -1068,6 +1205,232 @@ export default function CreatorPublicProfile() {
                 </div>
               )}
 
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Donation Modal */}
+      <AnimatePresence>
+        {isDonationModalOpen && profile && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              className="fixed inset-x-0 bottom-0 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:max-w-md w-full p-6 bg-white border-t md:border border-gray-200 rounded-t-[20px] md:rounded-[20px] shadow-2xl flex flex-col gap-4 z-50 text-left"
+              transition={{ type: 'spring', damping: 25, stiffness: 250 }}
+            >
+              <button
+                onClick={() => setIsDonationModalOpen(false)}
+                className="absolute top-4 right-4 p-1.5 rounded-full border border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-neutral-900 transition-all cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-bold text-pink-500 uppercase tracking-widest">Soutenir {profile.display_name}</span>
+                <h3 className="font-display text-lg font-medium text-neutral-900">Faire un don</h3>
+              </div>
+
+              <form onSubmit={handleDonationSubmit} className="flex flex-col gap-3.5">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-gray-600">Montant (FCFA)</label>
+                  <div className="flex gap-2">
+                    {[1000, 2500, 5000, 10000].map((amt) => (
+                      <button
+                        type="button"
+                        key={amt}
+                        onClick={() => setDonationAmount(amt)}
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer ${donationAmount === amt ? 'bg-pink-500 border-pink-500 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-pink-300'}`}
+                      >
+                        {amt.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="number"
+                    min={1000}
+                    step={100}
+                    value={donationAmount}
+                    onChange={(e) => setDonationAmount(Number(e.target.value))}
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:border-pink-400 focus:outline-none"
+                    required
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-gray-600">Votre nom</label>
+                  <input
+                    type="text"
+                    value={donorName}
+                    onChange={(e) => setDonorName(e.target.value)}
+                    placeholder="Votre nom ou pseudo"
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:border-pink-400 focus:outline-none"
+                    required
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-gray-600">Email (optionnel)</label>
+                  <input
+                    type="email"
+                    value={donorEmail}
+                    onChange={(e) => setDonorEmail(e.target.value)}
+                    placeholder="votre@email.com"
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:border-pink-400 focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-gray-600">Un petit mot (optionnel)</label>
+                  <textarea
+                    value={donorMessage}
+                    onChange={(e) => setDonorMessage(e.target.value)}
+                    placeholder="Continue comme ça !"
+                    rows={2}
+                    maxLength={300}
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:border-pink-400 focus:outline-none resize-none"
+                  />
+                </div>
+
+                {donationError && (
+                  <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>{donationError}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isDonating || donationAmount < 1000 || !donorName.trim()}
+                  className="w-full py-3 rounded-xl text-xs font-bold text-white bg-pink-500 hover:bg-pink-600 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                >
+                  {isDonating ? <Loader2 size={14} className="animate-spin" /> : <Heart size={14} />}
+                  <span>{isDonating ? 'Redirection...' : `Envoyer ${donationAmount.toLocaleString()} FCFA`}</span>
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Contact / Partnership Modal */}
+      <AnimatePresence>
+        {isContactModalOpen && profile && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              className="fixed inset-x-0 bottom-0 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:max-w-md w-full p-6 bg-white border-t md:border border-gray-200 rounded-t-[20px] md:rounded-[20px] shadow-2xl flex flex-col gap-4 z-50 text-left"
+              transition={{ type: 'spring', damping: 25, stiffness: 250 }}
+            >
+              <button
+                onClick={closeContactModal}
+                className="absolute top-4 right-4 p-1.5 rounded-full border border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-neutral-900 transition-all cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+
+              {contactSent ? (
+                <div className="py-4 flex flex-col items-center text-center gap-3">
+                  <div className="p-3 bg-green-500/10 text-green-600 rounded-full border border-green-500/20">
+                    <Check size={28} strokeWidth={2.5} />
+                  </div>
+                  <h3 className="font-display text-lg font-medium text-neutral-900">Message envoyé !</h3>
+                  <p className="text-xs text-gray-500 max-w-[280px]">
+                    {profile.display_name} recevra votre {contactType === 'partnership' ? 'proposition de partenariat' : 'message'} dans son tableau de bord.
+                  </p>
+                  <button
+                    onClick={closeContactModal}
+                    className="mt-2 px-5 py-2.5 rounded-full text-xs font-bold bg-accent-corail text-white hover:bg-accent-corail-hover transition-all cursor-pointer"
+                  >
+                    Fermer
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[10px] font-bold text-accent-corail uppercase tracking-widest">Contacter {profile.display_name}</span>
+                    <h3 className="font-display text-lg font-medium text-neutral-900">Envoyer un message</h3>
+                  </div>
+
+                  <form onSubmit={handleContactSubmit} className="flex flex-col gap-3.5">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setContactType('message')}
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer ${contactType === 'message' ? 'bg-accent-corail border-accent-corail text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-accent-corail/40'}`}
+                      >
+                        Message
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setContactType('partnership')}
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer ${contactType === 'partnership' ? 'bg-accent-corail border-accent-corail text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-accent-corail/40'}`}
+                      >
+                        Partenariat
+                      </button>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-gray-600">Votre nom</label>
+                      <input
+                        type="text"
+                        value={senderName}
+                        onChange={(e) => setSenderName(e.target.value)}
+                        placeholder="Votre nom"
+                        className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:border-accent-corail focus:outline-none"
+                        required
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-gray-600">Votre email</label>
+                      <input
+                        type="email"
+                        value={senderEmail}
+                        onChange={(e) => setSenderEmail(e.target.value)}
+                        placeholder="votre@email.com"
+                        className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:border-accent-corail focus:outline-none"
+                        required
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-gray-600">
+                        {contactType === 'partnership' ? 'Détails de votre proposition' : 'Votre message'}
+                      </label>
+                      <textarea
+                        value={contactBody}
+                        onChange={(e) => setContactBody(e.target.value)}
+                        placeholder={contactType === 'partnership' ? 'Présentez votre marque et votre proposition...' : 'Écrivez votre message...'}
+                        rows={4}
+                        maxLength={2000}
+                        className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:border-accent-corail focus:outline-none resize-none"
+                        required
+                      />
+                    </div>
+
+                    {contactError && (
+                      <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
+                        <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                        <span>{contactError}</span>
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={isSendingContact || !senderName.trim() || !senderEmail.trim() || !contactBody.trim()}
+                      className="w-full py-3 rounded-xl text-xs font-bold text-white bg-accent-corail hover:bg-accent-corail-hover transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                    >
+                      {isSendingContact ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                      <span>{isSendingContact ? 'Envoi...' : 'Envoyer'}</span>
+                    </button>
+                  </form>
+                </>
+              )}
             </motion.div>
           </div>
         )}

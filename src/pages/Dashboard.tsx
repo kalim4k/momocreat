@@ -8,6 +8,8 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { getSupabaseClient } from '../lib/supabase';
+import { Skeleton, StatCardSkeleton } from '../components/Skeleton';
+import GuidedTour from '../components/dashboard/GuidedTour';
 import { 
   AreaChart, 
   Area, 
@@ -17,7 +19,7 @@ import {
   ResponsiveContainer,
   CartesianGrid
 } from 'recharts';
-import { Content } from '../types';
+import { Content, Donation, ProfileMessage } from '../types';
 import { 
   Home, 
   Grid, 
@@ -59,7 +61,10 @@ import {
   Filter,
   Crown,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Mail,
+  Heart,
+  Briefcase
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -181,13 +186,15 @@ export default function Dashboard() {
   const { isDarkMode, setIsDarkMode, styles: themeStyles } = useTheme();
 
   // Determine active view based on current route
-  const getActiveTab = (): 'content' | 'withdrawals' | 'profile' | 'subscription' | 'home' | 'sales' => {
+  const getActiveTab = (): 'content' | 'withdrawals' | 'profile' | 'subscription' | 'home' | 'sales' | 'messages' | 'donations' => {
     const path = location.pathname;
     if (path.includes('/content')) return 'content';
     if (path.includes('/withdrawals')) return 'withdrawals';
     if (path.includes('/profile')) return 'profile';
     if (path.includes('/subscription')) return 'subscription';
     if (path.includes('/sales')) return 'sales';
+    if (path.includes('/donations')) return 'donations';
+    if (path.includes('/messages')) return 'messages';
     return 'home';
   };
 
@@ -223,30 +230,148 @@ export default function Dashboard() {
   const [salesSearch, setSalesSearch] = useState('');
   const [salesStatus, setSalesStatus] = useState('all');
 
-  // Helper to format date for chart (last 30 days)
-  const getChartData = () => {
-    const days = [];
+  // Overview period filter - shared by the 4 stat cards AND the revenue chart, so the numbers
+  // creators see never disagree with each other.
+  const [overviewRange, setOverviewRange] = useState<'7d' | '30d' | '90d' | '365d' | 'custom'>('30d');
+  const [overviewCustomStart, setOverviewCustomStart] = useState('');
+  const [overviewCustomEnd, setOverviewCustomEnd] = useState('');
+
+  const overviewRangeLabels: Record<typeof overviewRange, string> = {
+    '7d': '7 jours',
+    '30d': '30 jours',
+    '90d': '90 jours',
+    '365d': '12 mois',
+    'custom': 'Personnalisé'
+  };
+
+  // Resolves the selected preset (or custom dates) into concrete start/end Date bounds
+  const getOverviewRangeBounds = (): { startDate: Date; endDate: Date } => {
     const now = new Date();
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(now.getDate() - i);
-      const dateStr = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-      const keyDate = d.toISOString().split('T')[0];
-      days.push({ date: dateStr, keyDate, revenu: 0, ventes: 0 });
+    now.setHours(23, 59, 59, 999);
+    let startDate: Date;
+    let endDate = now;
+
+    if (overviewRange === 'custom' && overviewCustomStart && overviewCustomEnd) {
+      startDate = new Date(overviewCustomStart);
+      endDate = new Date(overviewCustomEnd);
+      endDate.setHours(23, 59, 59, 999);
+    } else {
+      const daysBack = overviewRange === '7d' ? 6 : overviewRange === '30d' ? 29 : overviewRange === '90d' ? 89 : 364;
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - daysBack);
+      startDate.setHours(0, 0, 0, 0);
     }
+
+    if (startDate > endDate) [startDate, endDate] = [endDate, startDate];
+    return { startDate, endDate };
+  };
+
+  // Sums sales revenue, donations, sales count and newly-published content within a date window —
+  // used both for the stat cards (current period) and for computing the previous-period trend.
+  const getPeriodTotals = (startDate: Date, endDate: Date) => {
+    let salesRevenue = 0;
+    let salesCount = 0;
+    let donationsAmount = 0;
+    let newContentCount = 0;
+
+    purchasesList.forEach((p) => {
+      const dateRaw = p.created_at || p.createdAt;
+      if (!dateRaw) return;
+      const pDate = new Date(dateRaw);
+      if (pDate < startDate || pDate > endDate) return;
+      salesRevenue += p.creator_net_amount_fcfa || p.creator_net_amount || 0;
+      salesCount += 1;
+    });
+
+    donationsList.forEach((d) => {
+      const dDate = new Date(d.created_at);
+      if (dDate < startDate || dDate > endDate) return;
+      donationsAmount += d.amount_fcfa || 0;
+    });
+
+    contentsList.forEach((c) => {
+      const cDate = new Date(c.created_at);
+      if (cDate < startDate || cDate > endDate || c.status !== 'published') return;
+      newContentCount += 1;
+    });
+
+    return { salesRevenue, salesCount, donationsAmount, newContentCount };
+  };
+
+  // Percent change vs. the immediately preceding period of equal length.
+  // Returns isNew=true when there's no previous data to compare against (avoids a meaningless "+Infinity%").
+  const calcTrend = (current: number, previous: number): { pct: number; isNew: boolean } => {
+    if (previous > 0) return { pct: Math.round(((current - previous) / previous) * 100), isNew: false };
+    if (current > 0) return { pct: 0, isNew: true };
+    return { pct: 0, isNew: false };
+  };
+
+  // Builds revenue chart buckets over the selected period, auto-adapting granularity
+  // (jour / semaine / mois) to keep the chart readable regardless of the range length.
+  const getChartData = () => {
+    const { startDate, endDate } = getOverviewRangeBounds();
+
+    const totalDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1);
+    const granularity: 'day' | 'week' | 'month' = totalDays <= 31 ? 'day' : totalDays <= 180 ? 'week' : 'month';
+
+    const buckets: { date: string; bucketStart: Date; revenu: number; ventes: number }[] = [];
+
+    if (granularity === 'month') {
+      const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+      while (cursor <= endDate) {
+        buckets.push({
+          date: cursor.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }),
+          bucketStart: new Date(cursor),
+          revenu: 0,
+          ventes: 0
+        });
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+    } else {
+      const step = granularity === 'week' ? 7 : 1;
+      const cursor = new Date(startDate);
+      while (cursor <= endDate) {
+        buckets.push({
+          date: granularity === 'week'
+            ? `Sem. du ${cursor.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`
+            : cursor.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }),
+          bucketStart: new Date(cursor),
+          revenu: 0,
+          ventes: 0
+        });
+        cursor.setDate(cursor.getDate() + step);
+      }
+    }
+
+    const findBucketIndex = (d: Date) => {
+      for (let idx = buckets.length - 1; idx >= 0; idx--) {
+        if (d >= buckets[idx].bucketStart) return idx;
+      }
+      return -1;
+    };
 
     purchasesList.forEach(p => {
       const dateRaw = p.created_at || p.createdAt;
       if (!dateRaw) return;
-      const pDate = dateRaw.split('T')[0];
-      const match = days.find(day => day.keyDate === pDate);
-      if (match) {
-        match.revenu += p.creator_net_amount_fcfa || p.amount_paid_fcfa || 0;
-        match.ventes += 1;
+      const pDate = new Date(dateRaw);
+      if (pDate < startDate || pDate > endDate) return;
+      const idx = findBucketIndex(pDate);
+      if (idx >= 0) {
+        buckets[idx].revenu += p.creator_net_amount_fcfa || p.amount_paid_fcfa || 0;
+        buckets[idx].ventes += 1;
       }
     });
 
-    return days;
+    donationsList.forEach(d => {
+      const dDate = new Date(d.created_at);
+      if (dDate < startDate || dDate > endDate) return;
+      const idx = findBucketIndex(dDate);
+      if (idx >= 0) {
+        buckets[idx].revenu += d.creator_net_amount_fcfa || 0;
+      }
+    });
+
+    return buckets;
   };
 
   const handleCreateStoreSubmit = async (e: React.FormEvent) => {
@@ -393,7 +518,6 @@ export default function Dashboard() {
   // Withdrawals and Purchases State for withdrawals tab
   const [withdrawalsList, setWithdrawalsList] = useState<any[]>([]);
   const [purchasesList, setPurchasesList] = useState<any[]>([]);
-  const latestPurchases = purchasesList.slice(0, 5);
   const [isLoadingWithdrawals, setIsLoadingWithdrawals] = useState(false);
   const [withdrawalError, setWithdrawalError] = useState<string | null>(null);
   const [withdrawalSuccess, setWithdrawalSuccess] = useState<string | null>(null);
@@ -402,6 +526,40 @@ export default function Dashboard() {
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [isSubmittingWithdrawal, setIsSubmittingWithdrawal] = useState(false);
+
+  // Donations & Messages/Partnerships inbox state
+  const [donationsList, setDonationsList] = useState<Donation[]>([]);
+  const [messagesList, setMessagesList] = useState<ProfileMessage[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const unreadMessagesCount = messagesList.filter((m: ProfileMessage) => !m.is_read).length;
+
+  // Reverse-chronological feed of messages + partnership proposals (donations have their own tab)
+  const inboxFeed: ProfileMessage[] = [...messagesList].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
+  // Reverse-chronological list of donations received
+  const sortedDonations: Donation[] = [...donationsList].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
+  // Donations have no is_read column (unlike messages) — track "seen" client-side via a per-creator timestamp checkpoint
+  const [donationsLastSeenAt, setDonationsLastSeenAt] = useState<number>(() => {
+    if (!profile) return 0;
+    const stored = localStorage.getItem(`momo_donations_last_seen_${profile.id}`);
+    return stored ? Number(stored) : 0;
+  });
+  const newDonationsCount = donationsList.filter(
+    (d) => new Date(d.created_at).getTime() > donationsLastSeenAt
+  ).length;
+
+  useEffect(() => {
+    if (activeTab === 'donations' && profile) {
+      const now = Date.now();
+      localStorage.setItem(`momo_donations_last_seen_${profile.id}`, String(now));
+      setDonationsLastSeenAt(now);
+    }
+  }, [activeTab, profile]);
 
   // Timeago helper
   const formatTimeAgo = (dateStr: string) => {
@@ -538,16 +696,129 @@ export default function Dashboard() {
     }
   };
 
+  // Fetch donations received and messages/partnership proposals sent to this creator's public profile
+  const fetchMessagesAndDonations = async () => {
+    if (!profile) return;
+    setIsLoadingMessages(true);
+    try {
+      if (!isDemoMode) {
+        const supabaseClient = getSupabaseClient();
+        if (supabaseClient) {
+          const { data: donationsData, error: donationsErr } = await supabaseClient
+            .from('donations')
+            .select('*')
+            .eq('creator_id', profile.id)
+            .eq('status', 'completed')
+            .order('created_at', { ascending: false });
+
+          if (!donationsErr) setDonationsList(donationsData || []);
+
+          const { data: messagesData, error: messagesErr } = await supabaseClient
+            .from('profile_messages')
+            .select('*')
+            .eq('creator_id', profile.id)
+            .order('created_at', { ascending: false });
+
+          if (!messagesErr) setMessagesList(messagesData || []);
+        }
+      } else {
+        const localMessages = localStorage.getItem('momo_local_messages');
+        setMessagesList(localMessages ? JSON.parse(localMessages).filter((m: ProfileMessage) => m.creator_id === profile.id) : []);
+        setDonationsList([]);
+      }
+    } catch (err: any) {
+      console.error('Error fetching messages or donations:', err);
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  };
+
+  const handleMarkMessageRead = async (message: ProfileMessage) => {
+    if (message.is_read) return;
+    setMessagesList(prev => prev.map(m => m.id === message.id ? { ...m, is_read: true } : m));
+
+    if (!isDemoMode) {
+      const supabaseClient = getSupabaseClient();
+      if (supabaseClient) {
+        await supabaseClient.from('profile_messages').update({ is_read: true }).eq('id', message.id);
+      }
+    } else {
+      const localMessages = JSON.parse(localStorage.getItem('momo_local_messages') || '[]');
+      const updated = localMessages.map((m: ProfileMessage) => m.id === message.id ? { ...m, is_read: true } : m);
+      localStorage.setItem('momo_local_messages', JSON.stringify(updated));
+    }
+  };
+
   // Real-time balance calculations
   const totalCreatorEarnings = purchasesList.reduce((sum, p) => {
     return sum + (p.creator_net_amount_fcfa || p.creator_net_amount || 0);
-  }, 0);
+  }, 0) + donationsList.reduce((sum, d) => sum + (d.creator_net_amount_fcfa || 0), 0);
 
   const totalWithdrawnAndPending = withdrawalsList
     .filter(w => ['pending', 'approved', 'paid'].includes(w.status))
     .reduce((sum, w) => sum + (w.amount_requested || 0), 0);
 
   const availableBalance = Math.max(0, totalCreatorEarnings - totalWithdrawnAndPending);
+
+  // True until both the contents and the withdrawals/purchases fetches have resolved at least once,
+  // so overview numbers never flash "0" before the real database values are in.
+  const isOverviewLoading = isLoadingContents || isLoadingWithdrawals;
+
+  const { startDate: overviewStart, endDate: overviewEnd } = getOverviewRangeBounds();
+  const currentPeriodTotals = getPeriodTotals(overviewStart, overviewEnd);
+  const previousPeriodEnd = new Date(overviewStart.getTime() - 1);
+  const previousPeriodStart = new Date(previousPeriodEnd.getTime() - (overviewEnd.getTime() - overviewStart.getTime()));
+  const previousPeriodTotals = getPeriodTotals(previousPeriodStart, previousPeriodEnd);
+  const revenueTrend = calcTrend(currentPeriodTotals.salesRevenue, previousPeriodTotals.salesRevenue);
+  const donationsTrend = calcTrend(currentPeriodTotals.donationsAmount, previousPeriodTotals.donationsAmount);
+
+  // Unified activity feed for the home tab: sales, donations, messages/partnerships and withdrawal
+  // status changes merged into one reverse-chronological list, so creators don't have to check 4 tabs.
+  type ActivityEvent = {
+    id: string;
+    type: 'sale' | 'donation' | 'message' | 'partnership' | 'withdrawal';
+    title: string;
+    subtitle: string;
+    amount?: number;
+    timestamp: string;
+  };
+
+  const recentActivity: ActivityEvent[] = [
+    ...purchasesList.map((p): ActivityEvent => ({
+      id: `sale-${p.id}`,
+      type: 'sale',
+      title: p.contents?.title || p.title || 'Vente de contenu',
+      subtitle: p.buyer_phone || 'Acheteur',
+      amount: p.amount_paid_fcfa || p.amount || 0,
+      timestamp: p.created_at || p.createdAt,
+    })),
+    ...donationsList.map((d): ActivityEvent => ({
+      id: `donation-${d.id}`,
+      type: 'donation',
+      title: `Don de ${d.donor_name}`,
+      subtitle: d.donor_message || 'Merci pour votre soutien',
+      amount: d.amount_fcfa,
+      timestamp: d.created_at,
+    })),
+    ...messagesList.map((m): ActivityEvent => ({
+      id: `message-${m.id}`,
+      type: m.type,
+      title: m.type === 'partnership' ? `Partenariat de ${m.sender_name}` : `Message de ${m.sender_name}`,
+      subtitle: m.body,
+      timestamp: m.created_at,
+    })),
+    ...withdrawalsList.map((w): ActivityEvent => ({
+      id: `withdrawal-${w.id}`,
+      type: 'withdrawal',
+      title: w.status === 'paid' ? 'Retrait payé' : w.status === 'approved' ? 'Retrait approuvé' : w.status === 'rejected' ? 'Retrait rejeté' : 'Retrait demandé',
+      subtitle: getPayoutProviderLabel(w.payout_provider),
+      amount: w.amount_requested,
+      timestamp: w.requested_at,
+    })),
+  ]
+    .filter((e) => !!e.timestamp)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 8);
 
   // Submit withdrawal handler
   const handleSubmitWithdrawal = async (e: React.FormEvent) => {
@@ -971,6 +1242,7 @@ export default function Dashboard() {
       fetchContents();
       fetchWithdrawalsAndPurchases();
       fetchSubscriptionStatus();
+      fetchMessagesAndDonations();
     }
   }, [profile, isDemoMode]);
 
@@ -1249,13 +1521,15 @@ export default function Dashboard() {
   const isAdmin = user?.email === adminEmail;
 
   const navItems = [
-    { id: 'home', label: 'Tableau de bord', icon: Home, path: '/dashboard' },
-    { id: 'content', label: 'Mon contenu', icon: Grid, path: '/dashboard/content' },
-    { id: 'sales', label: 'Mes ventes', icon: ShoppingBag, path: '/dashboard/sales' },
-    { id: 'withdrawals', label: 'Retraits', icon: Wallet, path: '/dashboard/withdrawals' },
-    { id: 'profile', label: 'Mon profil', icon: User, path: '/dashboard/profile' },
-    { id: 'subscription', label: 'Abonnement', icon: Crown, path: '/dashboard/subscription' },
-    ...(isAdmin ? [{ id: 'admin', label: 'Administration', icon: Shield, path: '/admin' }] : []),
+    { id: 'home', label: 'Tableau de bord', icon: Home, path: '/dashboard', section: null as string | null },
+    { id: 'messages', label: 'Messages', icon: Bell, path: '/dashboard/messages', badge: unreadMessagesCount > 0 ? unreadMessagesCount : undefined, section: null as string | null },
+    { id: 'sales', label: 'Mes ventes', icon: ShoppingBag, path: '/dashboard/sales', section: 'Revenus' },
+    { id: 'donations', label: 'Dons', icon: Heart, path: '/dashboard/donations', badge: newDonationsCount > 0 ? newDonationsCount : undefined, section: 'Revenus' },
+    { id: 'withdrawals', label: 'Retraits', icon: Wallet, path: '/dashboard/withdrawals', section: 'Revenus' },
+    { id: 'content', label: 'Mon contenu', icon: Grid, path: '/dashboard/content', section: 'Contenu' },
+    { id: 'profile', label: 'Mon profil', icon: User, path: '/dashboard/profile', section: 'Compte' },
+    { id: 'subscription', label: 'Abonnement', icon: Crown, path: '/dashboard/subscription', section: 'Compte' },
+    ...(isAdmin ? [{ id: 'admin', label: 'Administration', icon: Shield, path: '/admin', section: null as string | null }] : []),
   ];
 
   const displayName = profile?.display_name || 'Créateur';
@@ -1309,7 +1583,7 @@ export default function Dashboard() {
             </div>
             {!isSidebarCollapsed && (
               <span className={`font-display font-bold text-lg ${themeStyles.textPrimary} tracking-tight whitespace-nowrap overflow-hidden transition-all duration-300`}>
-                MomoLink <span className="text-accent-corail text-xs font-semibold">Pro</span>
+                MomoLink {profile?.is_premium && <span className="text-accent-corail text-xs font-semibold">Pro</span>}
               </span>
             )}
           </div>
@@ -1317,35 +1591,48 @@ export default function Dashboard() {
 
 
           {/* Navigation Links */}
-          <nav className="flex flex-col gap-1.5">
-            {navItems.map((item) => {
+          <nav data-tour="sidebar-nav" className="flex flex-col gap-1.5">
+            {navItems.map((item, idx) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               const showDot = item.id === 'subscription' && isSubActionRequired();
+              const prevSection = idx > 0 ? navItems[idx - 1].section : null;
+              const showSectionHeader = !!item.section && item.section !== prevSection;
               return (
-                <Link
-                  key={item.id}
-                  to={item.path}
-                  title={isSidebarCollapsed ? item.label : undefined}
-                  className={`flex items-center ${isSidebarCollapsed ? 'justify-center p-3' : 'justify-between px-4 py-3'} rounded-[12px] text-sm font-medium transition-all duration-200 ${
-                    isActive 
-                      ? 'bg-accent-corail/10 text-accent-corail border border-accent-corail/15 font-semibold' 
-                      : `${themeStyles.textSecondary} hover:text-text-primary ${themeStyles.hoverBg} border border-transparent`
-                  }`}
-                >
-                  <div className="flex items-center gap-3 relative">
-                    <Icon size={18} className="shrink-0" />
-                    {!isSidebarCollapsed && (
-                      <span className="whitespace-nowrap transition-all duration-300">{item.label}</span>
-                    )}
-                    {isSidebarCollapsed && showDot && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                    )}
-                  </div>
-                  {!isSidebarCollapsed && showDot && (
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                <React.Fragment key={item.id}>
+                  {showSectionHeader && !isSidebarCollapsed && (
+                    <span className={`px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-widest ${themeStyles.textSecondary} opacity-50`}>
+                      {item.section}
+                    </span>
                   )}
-                </Link>
+                  <Link
+                    to={item.path}
+                    title={isSidebarCollapsed ? item.label : undefined}
+                    className={`flex items-center ${isSidebarCollapsed ? 'justify-center p-3' : 'justify-between px-4 py-3'} rounded-[12px] text-sm font-medium transition-all duration-200 ${
+                      isActive
+                        ? 'bg-accent-corail/10 text-accent-corail border border-accent-corail/15 font-semibold'
+                        : `${themeStyles.textSecondary} hover:text-text-primary ${themeStyles.hoverBg} border border-transparent`
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 relative">
+                      <Icon size={18} className="shrink-0" />
+                      {!isSidebarCollapsed && (
+                        <span className="whitespace-nowrap transition-all duration-300">{item.label}</span>
+                      )}
+                      {isSidebarCollapsed && (showDot || !!item.badge) && (
+                        <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                      )}
+                    </div>
+                    {!isSidebarCollapsed && showDot && (
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                    )}
+                    {!isSidebarCollapsed && !!item.badge && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-accent-corail text-white text-[10px] font-bold shrink-0 min-w-[18px] text-center">
+                        {item.badge}
+                      </span>
+                    )}
+                  </Link>
+                </React.Fragment>
               );
             })}
           </nav>
@@ -1454,7 +1741,7 @@ export default function Dashboard() {
           {/* Right Side: Actions (Visiter le profil, copy link, and profile button) */}
           <div className="flex items-center gap-2.5">
             {/* "Visiter le profil" Action Button with Copy Button inside a stylish Group */}
-            <div className={`flex items-center rounded-xl overflow-hidden border ${themeStyles.border} ${isDarkMode ? 'bg-neutral-900/40' : 'bg-gray-50/50'} p-0.5 shadow-sm shrink-0`}>
+            <div data-tour="header-visit-shop" className={`flex items-center rounded-xl overflow-hidden border ${themeStyles.border} ${isDarkMode ? 'bg-neutral-900/40' : 'bg-gray-50/50'} p-0.5 shadow-sm shrink-0`}>
               <a
                 href={`/@${username}`}
                 target="_blank"
@@ -1527,10 +1814,11 @@ export default function Dashboard() {
             );
           })}
           <button
+            data-tour="mobile-menu-btn"
             onClick={() => setIsMobileMenuOpen(true)}
             className={`flex flex-col items-center gap-1 p-2 transition-colors duration-200 relative cursor-pointer ${
-              ['profile', 'subscription', 'admin'].includes(activeTab) 
-                ? 'text-accent-corail font-semibold' 
+              ['profile', 'subscription', 'admin'].includes(activeTab)
+                ? 'text-accent-corail font-semibold'
                 : themeStyles.textSecondary
             }`}
           >
@@ -1563,7 +1851,7 @@ export default function Dashboard() {
                 animate={{ x: 0 }}
                 exit={{ x: '-100%' }}
                 transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-                className={`md:hidden fixed inset-y-0 left-0 w-72 max-w-[80vw] ${themeStyles.surface} border-r ${themeStyles.border} h-full z-[60] p-6 flex flex-col justify-between shadow-2xl text-left`}
+                className={`md:hidden fixed inset-y-0 left-0 w-72 max-w-[80vw] ${themeStyles.surface} border-r ${themeStyles.border} h-full z-[60] p-6 flex flex-col justify-between shadow-2xl text-left overflow-y-auto`}
               >
                 <div className="flex flex-col gap-6">
                   {/* Drawer Header */}
@@ -1573,7 +1861,7 @@ export default function Dashboard() {
                         <Sparkles size={15} className="text-white" />
                       </div>
                       <span className={`font-display font-bold text-base ${themeStyles.textPrimary} tracking-tight`}>
-                        MomoLink <span className="text-accent-corail text-xs font-semibold">Pro</span>
+                        MomoLink {profile?.is_premium && <span className="text-accent-corail text-xs font-semibold">Pro</span>}
                       </span>
                     </div>
                     <button
@@ -1620,29 +1908,42 @@ export default function Dashboard() {
                       Menu de navigation
                     </span>
                     
-                    {navItems.map((item) => {
+                    {navItems.map((item, idx) => {
                       const Icon = item.icon;
                       const isActive = activeTab === item.id;
                       const showDot = item.id === 'subscription' && isSubActionRequired();
+                      const prevSection = idx > 0 ? navItems[idx - 1].section : null;
+                      const showSectionHeader = !!item.section && item.section !== prevSection;
                       return (
-                        <Link
-                          key={item.id}
-                          to={item.path}
-                          onClick={() => setIsMobileMenuOpen(false)}
-                          className={`flex items-center justify-between px-4 py-3 rounded-[12px] text-xs font-semibold transition-all duration-200 ${
-                            isActive 
-                              ? 'bg-accent-corail/10 text-accent-corail border border-accent-corail/15' 
-                              : `${themeStyles.textSecondary} hover:text-text-primary ${themeStyles.hoverBg} border border-transparent`
-                          }`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <Icon size={16} />
-                            <span>{item.label}</span>
-                          </div>
-                          {showDot && (
-                            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                        <React.Fragment key={item.id}>
+                          {showSectionHeader && (
+                            <span className={`px-2 pt-2 pb-0.5 text-[10px] font-bold uppercase tracking-widest ${themeStyles.textSecondary} opacity-50`}>
+                              {item.section}
+                            </span>
                           )}
-                        </Link>
+                          <Link
+                            to={item.path}
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={`flex items-center justify-between px-4 py-3 rounded-[12px] text-xs font-semibold transition-all duration-200 ${
+                              isActive
+                                ? 'bg-accent-corail/10 text-accent-corail border border-accent-corail/15'
+                                : `${themeStyles.textSecondary} hover:text-text-primary ${themeStyles.hoverBg} border border-transparent`
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <Icon size={16} />
+                              <span>{item.label}</span>
+                            </div>
+                            {showDot && (
+                              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                            )}
+                            {!!item.badge && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-accent-corail text-white text-[10px] font-bold min-w-[18px] text-center">
+                                {item.badge}
+                              </span>
+                            )}
+                          </Link>
+                        </React.Fragment>
                       );
                     })}
                   </nav>
@@ -1686,6 +1987,7 @@ export default function Dashboard() {
               {/* Header CTA - Desktop Only */}
               <Link
                 to="/dashboard/content"
+                data-tour="add-content-btn"
                 className="hidden sm:flex items-center gap-2 px-5 py-3 rounded-[12px] bg-accent-corail hover:bg-accent-corail-hover text-white text-xs font-semibold shadow-lg shadow-accent-corail/15 transition-all duration-200 active:scale-[0.98]"
               >
                 <Plus size={16} />
@@ -1693,84 +1995,157 @@ export default function Dashboard() {
               </Link>
             </div>
 
+            {/* Shared period selector - governs the 4 stat cards below AND the revenue chart,
+                so the numbers never disagree with each other. */}
+            <div className="flex flex-wrap items-center gap-2">
+              {(['7d', '30d', '90d', '365d'] as const).map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setOverviewRange(range)}
+                  className={`px-3 py-1.5 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
+                    overviewRange === range
+                      ? 'bg-accent-corail text-white'
+                      : `border ${themeStyles.border} ${themeStyles.textSecondary} hover:border-accent-corail/40`
+                  }`}
+                >
+                  {overviewRangeLabels[range]}
+                </button>
+              ))}
+              <button
+                onClick={() => setOverviewRange('custom')}
+                className={`px-3 py-1.5 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
+                  overviewRange === 'custom'
+                    ? 'bg-accent-corail text-white'
+                    : `border ${themeStyles.border} ${themeStyles.textSecondary} hover:border-accent-corail/40`
+                }`}
+              >
+                Période personnalisée
+              </button>
 
+              {overviewRange === 'custom' && (
+                <div className="flex items-center gap-2 ml-1">
+                  <input
+                    type="date"
+                    value={overviewCustomStart}
+                    onChange={(e) => setOverviewCustomStart(e.target.value)}
+                    className={`px-2.5 py-1.5 rounded-lg border ${themeStyles.border} bg-transparent text-[11px] ${themeStyles.textPrimary} focus:outline-none focus:border-accent-corail`}
+                  />
+                  <span className={`text-[11px] ${themeStyles.textSecondary}`}>à</span>
+                  <input
+                    type="date"
+                    value={overviewCustomEnd}
+                    onChange={(e) => setOverviewCustomEnd(e.target.value)}
+                    className={`px-2.5 py-1.5 rounded-lg border ${themeStyles.border} bg-transparent text-[11px] ${themeStyles.textPrimary} focus:outline-none focus:border-accent-corail`}
+                  />
+                </div>
+              )}
+            </div>
 
             {/* 4 Stats Cards Grid 2x2 */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Stat 1 */}
-              <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] flex flex-col justify-between min-h-[120px] shadow-sm hover:border-accent-corail/30 transition-all duration-200`}>
-                <div className="flex justify-between items-start">
-                  <span className={`text-[11px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Revenus du mois</span>
-                  <div className="p-2 rounded-[8px] bg-accent-corail/10 text-accent-corail">
-                    <TrendingUp size={14} />
+            {isOverviewLoading ? (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCardSkeleton />
+                <StatCardSkeleton />
+                <StatCardSkeleton />
+                <StatCardSkeleton />
+              </div>
+            ) : (
+              <div data-tour="stat-cards" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Stat 1 */}
+                <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] flex flex-col justify-between min-h-[120px] shadow-sm hover:border-accent-corail/30 transition-all duration-200`}>
+                  <div className="flex justify-between items-start">
+                    <span className={`text-[11px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Revenus</span>
+                    <div className="p-2 rounded-[8px] bg-accent-corail/10 text-accent-corail">
+                      <TrendingUp size={14} />
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <span className="font-display text-lg md:text-2xl font-semibold text-accent-corail">
+                      {currentPeriodTotals.salesRevenue.toLocaleString()} FCFA
+                    </span>
+                    <div className={`flex items-center gap-1.5 mt-0.5`}>
+                      <p className={`text-[10px] ${themeStyles.textSecondary}`}>Sur {overviewRangeLabels[overviewRange].toLowerCase()}</p>
+                      {revenueTrend.isNew ? (
+                        <span className="text-[10px] font-bold text-emerald-500">Nouveau</span>
+                      ) : revenueTrend.pct !== 0 ? (
+                        <span className={`text-[10px] font-bold ${revenueTrend.pct > 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                          {revenueTrend.pct > 0 ? '↑' : '↓'}{Math.abs(revenueTrend.pct)}%
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-                <div className="mt-4">
-                  <span className="font-display text-lg md:text-2xl font-semibold text-accent-corail">
-                    {stats.monthlyEarnings.toLocaleString()} FCFA
-                  </span>
-                  <p className={`text-[10px] ${themeStyles.textSecondary} mt-0.5`}>Ce mois civil</p>
-                </div>
-              </div>
 
-              {/* Stat 2 */}
-              <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] flex flex-col justify-between min-h-[120px] shadow-sm hover:border-accent-corail/30 transition-all duration-200`}>
-                <div className="flex justify-between items-start">
-                  <span className={`text-[11px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Ventes du mois</span>
-                  <div className="p-2 rounded-[8px] bg-success-gold/10 text-success-gold">
-                    <ShoppingBag size={14} />
+                {/* Stat 2 */}
+                <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] flex flex-col justify-between min-h-[120px] shadow-sm hover:border-accent-corail/30 transition-all duration-200`}>
+                  <div className="flex justify-between items-start">
+                    <span className={`text-[11px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Dons reçus</span>
+                    <div className="p-2 rounded-[8px] bg-pink-500/10 text-pink-500">
+                      <Heart size={14} />
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <span className={`font-display text-lg md:text-2xl font-semibold ${themeStyles.textPrimary}`}>
+                      {currentPeriodTotals.donationsAmount.toLocaleString()} FCFA
+                    </span>
+                    <div className={`flex items-center gap-1.5 mt-0.5`}>
+                      <p className={`text-[10px] ${themeStyles.textSecondary}`}>Sur {overviewRangeLabels[overviewRange].toLowerCase()}</p>
+                      {donationsTrend.isNew ? (
+                        <span className="text-[10px] font-bold text-emerald-500">Nouveau</span>
+                      ) : donationsTrend.pct !== 0 ? (
+                        <span className={`text-[10px] font-bold ${donationsTrend.pct > 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                          {donationsTrend.pct > 0 ? '↑' : '↓'}{Math.abs(donationsTrend.pct)}%
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-                <div className="mt-4">
-                  <span className={`font-display text-lg md:text-2xl font-semibold ${themeStyles.textPrimary}`}>
-                    {stats.monthlySalesCount} ventes
-                  </span>
-                  <p className={`text-[10px] ${themeStyles.textSecondary} mt-0.5`}>Taux de conversion stable</p>
-                </div>
-              </div>
 
-              {/* Stat 3 */}
-              <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] flex flex-col justify-between min-h-[120px] shadow-sm hover:border-accent-corail/30 transition-all duration-200`}>
-                <div className="flex justify-between items-start">
-                  <span className={`text-[11px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Revenus totaux</span>
-                  <div className="p-2 rounded-[8px] bg-green-500/10 text-green-400">
-                    <CreditCard size={14} />
+                {/* Stat 3 */}
+                <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] flex flex-col justify-between min-h-[120px] shadow-sm hover:border-accent-corail/30 transition-all duration-200`}>
+                  <div className="flex justify-between items-start">
+                    <span className={`text-[11px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Revenus totaux</span>
+                    <div className="p-2 rounded-[8px] bg-green-500/10 text-green-400">
+                      <CreditCard size={14} />
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <span className={`font-display text-lg md:text-2xl font-semibold ${themeStyles.textPrimary}`}>
+                      {totalCreatorEarnings.toLocaleString()} FCFA
+                    </span>
+                    <p className={`text-[10px] ${themeStyles.textSecondary} mt-0.5`}>Cumul historique (ventes + dons)</p>
                   </div>
                 </div>
-                <div className="mt-4">
-                  <span className={`font-display text-lg md:text-2xl font-semibold ${themeStyles.textPrimary}`}>
-                    {stats.totalEarnings.toLocaleString()} FCFA
-                  </span>
-                  <p className={`text-[10px] ${themeStyles.textSecondary} mt-0.5`}>Cumul historique</p>
-                </div>
-              </div>
 
-              {/* Stat 4 */}
-              <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] flex flex-col justify-between min-h-[120px] shadow-sm hover:border-accent-corail/30 transition-all duration-200`}>
-                <div className="flex justify-between items-start">
-                  <span className={`text-[11px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Contenus publiés</span>
-                  <div className="p-2 rounded-[8px] bg-purple-500/10 text-purple-400">
-                    <Grid size={14} />
+                {/* Stat 4 */}
+                <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] flex flex-col justify-between min-h-[120px] shadow-sm hover:border-accent-corail/30 transition-all duration-200`}>
+                  <div className="flex justify-between items-start">
+                    <span className={`text-[11px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Contenus publiés</span>
+                    <div className="p-2 rounded-[8px] bg-purple-500/10 text-purple-400">
+                      <Grid size={14} />
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <span className={`font-display text-lg md:text-2xl font-semibold ${themeStyles.textPrimary}`}>
+                      {stats.publishedContentsCount} guides
+                    </span>
+                    <p className={`text-[10px] ${themeStyles.textSecondary} mt-0.5`}>
+                      {currentPeriodTotals.newContentCount > 0 ? `+${currentPeriodTotals.newContentCount} sur la période` : 'Actifs en ligne'}
+                    </p>
                   </div>
                 </div>
-                <div className="mt-4">
-                  <span className={`font-display text-lg md:text-2xl font-semibold ${themeStyles.textPrimary}`}>
-                    {stats.publishedContentsCount} guides
-                  </span>
-                  <p className={`text-[10px] ${themeStyles.textSecondary} mt-0.5`}>Actifs en ligne</p>
-                </div>
               </div>
-            </div>
+            )}
 
             {/* Graphique d'évolution des ventes */}
             <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 md:p-6 rounded-[20px] shadow-sm`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
                 <div>
                   <h3 className={`font-display text-lg font-semibold ${themeStyles.textPrimary} tracking-tight`}>
                     Évolution des revenus
                   </h3>
                   <p className={`text-xs ${themeStyles.textSecondary}`}>
-                    Revenus nets créateur accumulés au cours des 30 derniers jours
+                    Revenus nets créateur (ventes + dons) sur {overviewRangeLabels[overviewRange].toLowerCase()}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-accent-corail/10 text-accent-corail w-fit">
@@ -1778,9 +2153,9 @@ export default function Dashboard() {
                   Données en temps réel
                 </div>
               </div>
-              
+
               <div className="h-[220px] w-full mt-2 font-sans text-[10px]">
-                {purchasesList.length === 0 ? (
+                {purchasesList.length === 0 && donationsList.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center gap-2 py-8">
                     <TrendingUp size={24} className={`${themeStyles.textSecondary} opacity-40`} />
                     <span className={`text-xs ${themeStyles.textSecondary}`}>Aucune donnée de transaction disponible</span>
@@ -1834,48 +2209,50 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Latest Sales / Transactions List */}
+            {/* Unified Recent Activity Feed: sales + donations + messages/partnerships + withdrawals */}
             <div className="flex flex-col gap-4">
               <h3 className={`font-display text-xl font-medium ${themeStyles.textPrimary} tracking-tight`}>
-                Dernières ventes
+                Activité récente
               </h3>
-              
+
               <div className={`${themeStyles.surface} border ${themeStyles.border} rounded-[20px] overflow-hidden shadow-md`}>
-                {latestPurchases.length === 0 ? (
+                {recentActivity.length === 0 ? (
                   <div className="p-12 text-center flex flex-col items-center justify-center gap-3">
                     <ShoppingBag className={`${themeStyles.textSecondary} opacity-40 h-10 w-10`} />
-                    <span className={`text-sm font-semibold ${themeStyles.textPrimary}`}>Aucune vente</span>
-                    <span className={`text-xs ${themeStyles.textSecondary}`}>Vos premières ventes apparaîtront ici</span>
+                    <span className={`text-sm font-semibold ${themeStyles.textPrimary}`}>Aucune activité</span>
+                    <span className={`text-xs ${themeStyles.textSecondary}`}>Vos ventes, dons et messages apparaîtront ici</span>
                   </div>
                 ) : (
                   <div className={`divide-y ${themeStyles.border}`}>
-                    {latestPurchases.map((purchase) => {
-                      const amount = purchase.amount_paid_fcfa || purchase.amount || 0;
-                      const title = purchase.contents?.title || purchase.title || 'Guide exclusif';
-                      const timeString = purchase.created_at ? formatTimeAgo(purchase.created_at) : (purchase.time || 'récemment');
+                    {recentActivity.map((event) => {
+                      const visuals = {
+                        sale: { icon: ShoppingBag, bg: 'bg-accent-corail/10', color: 'text-accent-corail' },
+                        donation: { icon: Heart, bg: 'bg-pink-500/10', color: 'text-pink-500' },
+                        message: { icon: Mail, bg: 'bg-accent-corail/10', color: 'text-accent-corail' },
+                        partnership: { icon: Briefcase, bg: 'bg-purple-500/10', color: 'text-purple-500' },
+                        withdrawal: { icon: Wallet, bg: 'bg-blue-500/10', color: 'text-blue-500' },
+                      }[event.type];
+                      const Icon = visuals.icon;
                       return (
-                        <div key={purchase.id} className="p-4 sm:p-5 flex items-center justify-between hover:bg-black/10 transition-all duration-150">
+                        <div key={event.id} className="p-4 sm:p-5 flex items-center justify-between hover:bg-black/10 transition-all duration-150 gap-3">
                           <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-10 h-10 rounded-[10px] bg-accent-corail/10 flex items-center justify-center text-accent-corail shrink-0">
-                              <ShoppingBag size={18} />
+                            <div className={`w-10 h-10 rounded-[10px] ${visuals.bg} flex items-center justify-center ${visuals.color} shrink-0`}>
+                              <Icon size={18} />
                             </div>
                             <div className="flex flex-col min-w-0">
-                              <span className={`text-xs font-semibold ${themeStyles.textPrimary} truncate block`}>{title}</span>
-                              <span className={`text-[10px] ${themeStyles.textSecondary} flex items-center gap-1 mt-0.5`}>
-                                <Clock size={10} />
-                                {timeString} • {purchase.buyer_phone || 'Acheteur'}
+                              <span className={`text-xs font-semibold ${themeStyles.textPrimary} truncate block`}>{event.title}</span>
+                              <span className={`text-[10px] ${themeStyles.textSecondary} flex items-center gap-1 mt-0.5 truncate`}>
+                                <Clock size={10} className="shrink-0" />
+                                {formatTimeAgo(event.timestamp)} • {event.subtitle}
                               </span>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-4 shrink-0">
-                            <span className={`text-sm font-bold ${isDarkMode ? 'text-success-gold' : 'text-neutral-950'} font-mono`}>
-                              +{amount.toLocaleString()} FCFA
+                          {typeof event.amount === 'number' && (
+                            <span className={`text-sm font-bold ${isDarkMode ? 'text-success-gold' : 'text-neutral-950'} font-mono shrink-0`}>
+                              {event.type === 'withdrawal' ? '-' : '+'}{event.amount.toLocaleString()} FCFA
                             </span>
-                            <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full ${isDarkMode ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-emerald-600 text-white'} text-[10px] font-extrabold uppercase tracking-wider shadow-sm`}>
-                              Payé
-                            </span>
-                          </div>
+                          )}
                         </div>
                       );
                     })}
@@ -1887,6 +2264,7 @@ export default function Dashboard() {
             {/* Floating Action Button - Mobile Only */}
             <Link
               to="/dashboard/content"
+              data-tour="mobile-add-content-btn"
               className="sm:hidden fixed bottom-20 right-6 w-14 h-14 rounded-full bg-accent-corail flex items-center justify-center text-white shadow-xl hover:bg-accent-corail-hover transition-transform duration-200 active:scale-95 z-40"
             >
               <Plus size={24} />
@@ -1908,51 +2286,60 @@ export default function Dashboard() {
             </div>
 
             {/* Sales stats grid (Brut, Net, count, average order value) */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Card 1 */}
-              <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] shadow-sm flex flex-col justify-between min-h-[110px]`}>
-                <span className={`text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Total Brut</span>
-                <div className="mt-2">
-                  <span className={`font-display text-base md:text-xl font-semibold ${themeStyles.textPrimary}`}>
-                    {totalBrutRevenue.toLocaleString()} FCFA
-                  </span>
-                  <p className={`text-[9px] ${themeStyles.textSecondary} mt-0.5`}>Volume d'affaires brut</p>
-                </div>
+            {isLoadingWithdrawals ? (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <Skeleton className="min-h-[110px] rounded-[20px]" />
+                <Skeleton className="min-h-[110px] rounded-[20px]" />
+                <Skeleton className="min-h-[110px] rounded-[20px]" />
+                <Skeleton className="min-h-[110px] rounded-[20px]" />
               </div>
+            ) : (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Card 1 */}
+                <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] shadow-sm flex flex-col justify-between min-h-[110px]`}>
+                  <span className={`text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Total Brut</span>
+                  <div className="mt-2">
+                    <span className={`font-display text-base md:text-xl font-semibold ${themeStyles.textPrimary}`}>
+                      {totalBrutRevenue.toLocaleString()} FCFA
+                    </span>
+                    <p className={`text-[9px] ${themeStyles.textSecondary} mt-0.5`}>Volume d'affaires brut</p>
+                  </div>
+                </div>
 
-              {/* Card 2 */}
-              <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] shadow-sm flex flex-col justify-between min-h-[110px] border-accent-corail/25`}>
-                <span className={`text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Revenu Net</span>
-                <div className="mt-2">
-                  <span className="font-display text-base md:text-xl font-semibold text-accent-corail">
-                    {totalNetRevenue.toLocaleString()} FCFA
-                  </span>
-                  <p className={`text-[9px] ${themeStyles.textSecondary} mt-0.5`}>Revenu dans votre poche</p>
+                {/* Card 2 */}
+                <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] shadow-sm flex flex-col justify-between min-h-[110px] border-accent-corail/25`}>
+                  <span className={`text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Revenu Net</span>
+                  <div className="mt-2">
+                    <span className="font-display text-base md:text-xl font-semibold text-accent-corail">
+                      {totalNetRevenue.toLocaleString()} FCFA
+                    </span>
+                    <p className={`text-[9px] ${themeStyles.textSecondary} mt-0.5`}>Revenu dans votre poche</p>
+                  </div>
                 </div>
-              </div>
 
-              {/* Card 3 */}
-              <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] shadow-sm flex flex-col justify-between min-h-[110px]`}>
-                <span className={`text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Volume Ventes</span>
-                <div className="mt-2">
-                  <span className={`font-display text-base md:text-xl font-semibold ${themeStyles.textPrimary}`}>
-                    {totalSalesCount} {totalSalesCount > 1 ? 'ventes' : 'vente'}
-                  </span>
-                  <p className={`text-[9px] ${themeStyles.textSecondary} mt-0.5`}>Nombre total d'achats</p>
+                {/* Card 3 */}
+                <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] shadow-sm flex flex-col justify-between min-h-[110px]`}>
+                  <span className={`text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Volume Ventes</span>
+                  <div className="mt-2">
+                    <span className={`font-display text-base md:text-xl font-semibold ${themeStyles.textPrimary}`}>
+                      {totalSalesCount} {totalSalesCount > 1 ? 'ventes' : 'vente'}
+                    </span>
+                    <p className={`text-[9px] ${themeStyles.textSecondary} mt-0.5`}>Nombre total d'achats</p>
+                  </div>
                 </div>
-              </div>
 
-              {/* Card 4 */}
-              <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] shadow-sm flex flex-col justify-between min-h-[110px]`}>
-                <span className={`text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Panier Moyen</span>
-                <div className="mt-2">
-                  <span className={`font-display text-base md:text-xl font-semibold ${themeStyles.textPrimary}`}>
-                    {averageOrderValue.toLocaleString()} FCFA
-                  </span>
-                  <p className={`text-[9px] ${themeStyles.textSecondary} mt-0.5`}>Valeur nette par commande</p>
+                {/* Card 4 */}
+                <div className={`${themeStyles.surface} border ${themeStyles.border} p-5 rounded-[20px] shadow-sm flex flex-col justify-between min-h-[110px]`}>
+                  <span className={`text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-widest`}>Panier Moyen</span>
+                  <div className="mt-2">
+                    <span className={`font-display text-base md:text-xl font-semibold ${themeStyles.textPrimary}`}>
+                      {averageOrderValue.toLocaleString()} FCFA
+                    </span>
+                    <p className={`text-[9px] ${themeStyles.textSecondary} mt-0.5`}>Valeur nette par commande</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Filters Bar */}
             <div className={`${themeStyles.surface} border ${themeStyles.border} p-4 rounded-[20px] shadow-sm flex flex-col md:flex-row gap-3`}>
@@ -2055,6 +2442,129 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* ==========================================
+            MESSAGES & PARTENARIATS
+           ========================================== */}
+        {activeTab === 'messages' && (
+          <div className="flex flex-col gap-6" id="dashboard-messages-container">
+            <div>
+              <h1 className={`font-display text-2xl md:text-3xl font-medium tracking-tight ${themeStyles.textPrimary}`}>
+                Messages
+              </h1>
+              <p className={`text-xs ${themeStyles.textSecondary} mt-1`}>
+                Messages et propositions de partenariat reçus sur votre profil public.
+              </p>
+            </div>
+
+            {isLoadingMessages ? (
+              <div className="flex flex-col gap-3">
+                <Skeleton className="h-20 w-full rounded-[16px]" />
+                <Skeleton className="h-20 w-full rounded-[16px]" />
+                <Skeleton className="h-20 w-full rounded-[16px]" />
+              </div>
+            ) : inboxFeed.length === 0 ? (
+              <div className={`${themeStyles.surface} border ${themeStyles.border} rounded-[20px] p-10 flex flex-col items-center text-center gap-3`}>
+                <div className="p-3 rounded-full bg-accent-corail/10 text-accent-corail">
+                  <Mail size={24} />
+                </div>
+                <h3 className="font-display text-base font-medium">Rien pour le moment</h3>
+                <p className={`text-xs ${themeStyles.textSecondary} max-w-sm`}>
+                  Les messages et propositions de partenariat envoyés depuis votre profil public apparaîtront ici.
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {inboxFeed.map((m) => {
+                  const isPartnership = m.type === 'partnership';
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => handleMarkMessageRead(m)}
+                      className={`${themeStyles.surface} border ${m.is_read ? themeStyles.border : 'border-accent-corail/40'} rounded-[16px] p-4 flex items-start gap-3.5 text-left w-full cursor-pointer hover:border-accent-corail/40 transition-colors`}
+                    >
+                      <div className={`p-2.5 rounded-xl shrink-0 ${isPartnership ? 'bg-purple-500/10 text-purple-500' : 'bg-accent-corail/10 text-accent-corail'}`}>
+                        {isPartnership ? <Briefcase size={16} /> : <Mail size={16} />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className={`text-sm font-semibold ${themeStyles.textPrimary} flex items-center gap-2`}>
+                            {m.sender_name}
+                            <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${isPartnership ? 'bg-purple-500/10 text-purple-500' : 'bg-accent-corail/10 text-accent-corail'}`}>
+                              {isPartnership ? 'Partenariat' : 'Message'}
+                            </span>
+                            {!m.is_read && <span className="w-1.5 h-1.5 rounded-full bg-accent-corail shrink-0" />}
+                          </h4>
+                          <span className={`text-[10px] ${themeStyles.textSecondary} shrink-0`}>{formatTimeAgo(m.created_at)}</span>
+                        </div>
+                        <p className={`text-xs ${themeStyles.textSecondary} mt-1 leading-relaxed line-clamp-2`}>{m.body}</p>
+                        <span className={`text-[10px] ${themeStyles.textSecondary} opacity-70 mt-1 block`}>{m.sender_email}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ==========================================
+            DONS REÇUS
+           ========================================== */}
+        {activeTab === 'donations' && (
+          <div className="flex flex-col gap-6" id="dashboard-donations-container">
+            <div>
+              <h1 className={`font-display text-2xl md:text-3xl font-medium tracking-tight ${themeStyles.textPrimary}`}>
+                Dons reçus
+              </h1>
+              <p className={`text-xs ${themeStyles.textSecondary} mt-1`}>
+                Liste des personnes qui vous ont fait un don depuis votre profil public.
+              </p>
+            </div>
+
+            {isLoadingMessages ? (
+              <div className="flex flex-col gap-3">
+                <Skeleton className="h-20 w-full rounded-[16px]" />
+                <Skeleton className="h-20 w-full rounded-[16px]" />
+                <Skeleton className="h-20 w-full rounded-[16px]" />
+              </div>
+            ) : sortedDonations.length === 0 ? (
+              <div className={`${themeStyles.surface} border ${themeStyles.border} rounded-[20px] p-10 flex flex-col items-center text-center gap-3`}>
+                <div className="p-3 rounded-full bg-pink-500/10 text-pink-500">
+                  <Heart size={24} />
+                </div>
+                <h3 className="font-display text-base font-medium">Aucun don pour le moment</h3>
+                <p className={`text-xs ${themeStyles.textSecondary} max-w-sm`}>
+                  Les dons reçus via le bouton "Faire un don" de votre profil public apparaîtront ici.
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {sortedDonations.map((d) => (
+                  <div key={d.id} className={`${themeStyles.surface} border ${themeStyles.border} rounded-[16px] p-4 flex items-start gap-3.5`}>
+                    <div className="p-2.5 rounded-xl bg-pink-500/10 text-pink-500 shrink-0">
+                      <Heart size={16} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <h4 className={`text-sm font-semibold ${themeStyles.textPrimary}`}>
+                          {d.donor_name} — <span className="text-pink-500">{d.amount_fcfa.toLocaleString()} FCFA</span>
+                        </h4>
+                        <span className={`text-[10px] ${themeStyles.textSecondary} shrink-0`}>{formatTimeAgo(d.created_at)}</span>
+                      </div>
+                      {d.donor_message && (
+                        <p className={`text-xs ${themeStyles.textSecondary} mt-1 leading-relaxed`}>{d.donor_message}</p>
+                      )}
+                      {d.donor_email && (
+                        <span className={`text-[10px] ${themeStyles.textSecondary} opacity-70 mt-1 block`}>{d.donor_email}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -2602,9 +3112,13 @@ export default function Dashboard() {
                     <span className={`text-[11px] font-bold uppercase tracking-wider ${themeStyles.textSecondary}`}>
                       Disponible pour retrait
                     </span>
-                    <span className="font-display text-[32px] font-black text-accent-corail leading-tight">
-                      {availableBalance.toLocaleString()} FCFA
-                    </span>
+                    {isLoadingWithdrawals ? (
+                      <Skeleton className="h-9 w-40 mt-1" />
+                    ) : (
+                      <span className="font-display text-[32px] font-black text-accent-corail leading-tight">
+                        {availableBalance.toLocaleString()} FCFA
+                      </span>
+                    )}
                   </div>
 
                   <div className={`pt-4 border-t ${themeStyles.border} flex flex-col gap-3`}>
@@ -3761,6 +4275,10 @@ export default function Dashboard() {
           </div>
         )}
       </AnimatePresence>
+
+      {profile && (
+        <GuidedTour storageKey={`momo_tour_seen_${profile.id}`} active={!isOverviewLoading} />
+      )}
 
       </main>
       </div>

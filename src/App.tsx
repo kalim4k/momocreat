@@ -61,6 +61,7 @@ import AdminWithdrawals from './pages/admin/AdminWithdrawals';
 import AdminSubscriptions from './pages/admin/AdminSubscriptions';
 import AdminTransactions from './pages/admin/AdminTransactions';
 import AdminContents from './pages/admin/AdminContents';
+import AdminDonationsMessages from './pages/admin/AdminDonationsMessages';
 import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 import Cgv from './pages/Cgv';
@@ -151,11 +152,14 @@ export default function App() {
             <Route path="/dashboard/withdrawals" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/dashboard/profile" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/dashboard/subscription" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/dashboard/messages" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/dashboard/donations" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             
             {/* Protected Admin Console Pages */}
             <Route path="/admin" element={<AdminRoute><AdminLayout><AdminOverview /></AdminLayout></AdminRoute>} />
             <Route path="/admin/creators" element={<AdminRoute><AdminLayout><AdminCreators /></AdminLayout></AdminRoute>} />
             <Route path="/admin/contents" element={<AdminRoute><AdminLayout><AdminContents /></AdminLayout></AdminRoute>} />
+            <Route path="/admin/donations-messages" element={<AdminRoute><AdminLayout><AdminDonationsMessages /></AdminLayout></AdminRoute>} />
             <Route path="/admin/withdrawals" element={<AdminRoute><AdminLayout><AdminWithdrawals /></AdminLayout></AdminRoute>} />
             <Route path="/admin/subscriptions" element={<AdminRoute><AdminLayout><AdminSubscriptions /></AdminLayout></AdminRoute>} />
             <Route path="/admin/transactions" element={<AdminRoute><AdminLayout><AdminTransactions /></AdminLayout></AdminRoute>} />

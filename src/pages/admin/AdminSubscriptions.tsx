@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Calendar, 
-  Loader2, 
-  Filter, 
-  Search, 
-  Clock, 
-  AlertTriangle, 
+import {
+  Calendar,
+  Loader2,
+  Filter,
+  Search,
+  Clock,
+  AlertTriangle,
   ShieldAlert,
-  Coins
+  Coins,
+  Crown
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { useToast } from '../../components/admin/Toast';
+import { ConfirmDialog } from '../../components/admin/ConfirmDialog';
 
 interface CreatorSubscription {
   id: string;
@@ -25,11 +28,14 @@ interface CreatorSubscription {
 
 export default function AdminSubscriptions() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [subscriptions, setSubscriptions] = useState<CreatorSubscription[]>([]);
   const [filter, setFilter] = useState<string>('all');
   const [search, setSearch] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [grantingId, setGrantingId] = useState<string | null>(null);
+  const [pendingGrant, setPendingGrant] = useState<{ creatorId: string; days: number } | null>(null);
 
   useEffect(() => {
     fetchSubscriptions();
@@ -65,6 +71,36 @@ export default function AdminSubscriptions() {
       setError('Impossible de charger la liste des abonnements premium.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleGrantPremium = (creatorId: string, days: number) => {
+    setPendingGrant({ creatorId, days });
+  };
+
+  const confirmGrantPremium = async () => {
+    if (!pendingGrant) return;
+    const { creatorId, days } = pendingGrant;
+    setGrantingId(creatorId);
+    try {
+      const headers = await getHeaders();
+      const res = await fetch(`/api/admin/creators/${creatorId}/grant-premium`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ days })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Erreur lors de l\'attribution du premium.');
+      }
+      await fetchSubscriptions();
+      showToast(`${days} jours de premium accordés avec succès.`);
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || 'Erreur lors de l\'attribution du premium.', 'error');
+    } finally {
+      setGrantingId(null);
+      setPendingGrant(null);
     }
   };
 
@@ -157,12 +193,13 @@ export default function AdminSubscriptions() {
                   <th className="px-5 py-3.5 text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Date d'expiration</th>
                   <th className="px-5 py-3.5 text-[11px] font-semibold text-text-secondary uppercase tracking-wider text-center">Jours Restants</th>
                   <th className="px-5 py-3.5 text-[11px] font-semibold text-text-secondary uppercase tracking-wider text-right">Financement Cumulé</th>
+                  <th className="px-5 py-3.5 text-[11px] font-semibold text-text-secondary uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-custom">
                 {filteredSubscriptions.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-5 py-12 text-center text-text-secondary text-sm">
+                    <td colSpan={6} className="px-5 py-12 text-center text-text-secondary text-sm">
                       Aucun abonnement ne correspond aux critères sélectionnés.
                     </td>
                   </tr>
@@ -241,6 +278,19 @@ export default function AdminSubscriptions() {
                             <span className="text-text-secondary">0 FCFA</span>
                           )}
                         </td>
+
+                        {/* Manual grant/extend premium action */}
+                        <td className="px-5 py-4 text-right">
+                          <button
+                            onClick={() => handleGrantPremium(s.id, 30)}
+                            disabled={grantingId === s.id}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-accent-corail/10 text-accent-corail hover:bg-accent-corail hover:text-white transition-all cursor-pointer disabled:opacity-50"
+                            title="Accorder 30 jours de premium"
+                          >
+                            {grantingId === s.id ? <Loader2 size={12} className="animate-spin" /> : <Crown size={12} />}
+                            {s.status === 'active' ? '+30j' : 'Accorder 30j'}
+                          </button>
+                        </td>
                       </tr>
                     );
                   })
@@ -250,6 +300,16 @@ export default function AdminSubscriptions() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!pendingGrant}
+        title="Accorder le premium ?"
+        message={pendingGrant ? `Accorder ${pendingGrant.days} jours de premium à ce créateur ?` : ''}
+        confirmLabel="Accorder"
+        isSubmitting={!!grantingId}
+        onConfirm={confirmGrantPremium}
+        onCancel={() => setPendingGrant(null)}
+      />
     </div>
   );
 }

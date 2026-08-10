@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  TrendingUp, 
-  Wallet, 
-  Coins, 
+import {
+  Users,
+  TrendingUp,
+  Wallet,
+  Coins,
   ArrowRight,
   Loader2
 } from 'lucide-react';
@@ -19,6 +19,7 @@ import {
 } from 'recharts';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { Skeleton } from '../../components/Skeleton';
 
 interface KPIs {
   activeCreators: number;
@@ -60,49 +61,86 @@ export default function AdminOverview() {
   const [chartData, setChartData] = useState<ChartItem[]>([]);
   const [recentPurchases, setRecentPurchases] = useState<RecentPurchase[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isChartLoading, setIsChartLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [chartRange, setChartRange] = useState<'7d' | '30d' | '90d' | '365d' | 'custom'>('30d');
+  const [chartCustomStart, setChartCustomStart] = useState('');
+  const [chartCustomEnd, setChartCustomEnd] = useState('');
+
+  const chartRangeLabels: Record<typeof chartRange, string> = {
+    '7d': '7 jours',
+    '30d': '30 jours',
+    '90d': '90 jours',
+    '365d': '12 mois',
+    'custom': 'Personnalisé'
+  };
+
+  const getHeaders = async () => {
+    let token = '';
+    if (supabase) {
+      const { data: { session } } = await supabase.auth.getSession();
+      token = session?.access_token || '';
+    }
+    if (!token && user) {
+      token = user.email || '';
+    }
+    return {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-Admin-Email': user?.email || ''
+    };
+  };
 
   useEffect(() => {
     fetchDashboardData();
   }, [user]);
+
+  useEffect(() => {
+    if (user) fetchChart();
+  }, [user, chartRange]);
+
+  const fetchChart = async () => {
+    try {
+      setIsChartLoading(true);
+      const headers = await getHeaders();
+      const params = new URLSearchParams({ range: chartRange });
+      if (chartRange === 'custom' && chartCustomStart && chartCustomEnd) {
+        params.set('start', chartCustomStart);
+        params.set('end', chartCustomEnd);
+      }
+      const res = await fetch(`/api/admin/chart?${params.toString()}`, { headers });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setChartData(data);
+    } catch (err) {
+      console.error('Error fetching admin chart:', err);
+    } finally {
+      setIsChartLoading(false);
+    }
+  };
 
   const fetchDashboardData = async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      let token = '';
-      if (supabase) {
-        const { data: { session } } = await supabase.auth.getSession();
-        token = session?.access_token || '';
-      }
-      if (!token && user) {
-        token = user.email || '';
-      }
+      const headers = await getHeaders();
 
-      const headers = {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'X-Admin-Email': user?.email || ''
-      };
-
-      // Fetch KPIs, Chart, and Recent purchases in parallel
-      const [kpisRes, chartRes, purchasesRes] = await Promise.all([
+      // Fetch KPIs and Recent purchases in parallel (chart is fetched separately, driven by chartRange)
+      const [kpisRes, purchasesRes] = await Promise.all([
         fetch('/api/admin/kpis', { headers }),
-        fetch('/api/admin/chart', { headers }),
         fetch('/api/admin/recent-purchases', { headers })
       ]);
 
-      if (!kpisRes.ok || !chartRes.ok || !purchasesRes.ok) {
+      if (!kpisRes.ok || !purchasesRes.ok) {
         throw new Error('Erreur lors du chargement des données administratives.');
       }
 
       const kpisData = await kpisRes.json();
-      const chartData = await chartRes.json();
       const purchasesData = await purchasesRes.json();
 
       setKpis(kpisData);
-      setChartData(chartData);
       setRecentPurchases(purchasesData);
 
     } catch (err: any) {
@@ -115,9 +153,58 @@ export default function AdminOverview() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-4">
-        <Loader2 className="w-10 h-10 text-accent-corail animate-spin" />
-        <p className="text-gray-400 text-sm">Chargement de la console super-admin...</p>
+      <div className="space-y-8" id="admin-overview-skeleton">
+        <div>
+          <Skeleton className="h-8 w-56" />
+          <Skeleton className="h-4 w-80 mt-2" />
+        </div>
+
+        {/* KPIs Grid skeleton */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="bg-bg-surface border border-border-custom rounded-xl p-5 flex items-center justify-between shadow-sm">
+              <div className="space-y-2 flex-1">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-6 w-28" />
+                <Skeleton className="h-2.5 w-32" />
+              </div>
+              <Skeleton className="h-11 w-11 rounded-xl shrink-0 ml-3" />
+            </div>
+          ))}
+        </div>
+
+        {/* Multi-shop summary skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="bg-bg-surface border border-border-custom rounded-xl p-5 shadow-sm space-y-2">
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-6 w-16" />
+              <Skeleton className="h-2.5 w-28" />
+            </div>
+          ))}
+        </div>
+
+        {/* Graph + quick actions skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-bg-surface border border-border-custom rounded-xl p-5 md:p-6 shadow-sm min-h-[350px] flex flex-col gap-4">
+            <Skeleton className="h-4 w-52" />
+            <Skeleton className="flex-1 w-full rounded-lg" />
+          </div>
+          <div className="bg-bg-surface border border-border-custom rounded-xl p-5 md:p-6 shadow-sm space-y-3.5">
+            <Skeleton className="h-4 w-40 mb-2" />
+            <Skeleton className="h-14 w-full rounded-lg" />
+            <Skeleton className="h-14 w-full rounded-lg" />
+            <Skeleton className="h-14 w-full rounded-lg" />
+          </div>
+        </div>
+
+        {/* Table skeleton */}
+        <div className="bg-bg-surface border border-border-custom rounded-xl p-5 space-y-3">
+          <Skeleton className="h-4 w-64" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+        </div>
       </div>
     );
   }
@@ -245,11 +332,68 @@ export default function AdminOverview() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Graph */}
         <div className="lg:col-span-2 bg-bg-surface border border-border-custom rounded-xl p-5 md:p-6 shadow-sm flex flex-col justify-between min-h-[350px]">
-          <div className="mb-4">
-            <h3 className="font-semibold text-text-primary">Évolution des revenus</h3>
-            <p className="text-xs text-text-secondary mt-0.5">Revenus nets de commissions perçues sur les 30 derniers jours (FCFA)</p>
+          <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-text-primary">Évolution des revenus</h3>
+              <p className="text-xs text-text-secondary mt-0.5">Commissions perçues sur {chartRangeLabels[chartRange].toLowerCase()} (FCFA)</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(['7d', '30d', '90d', '365d'] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setChartRange(r)}
+                  className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition-all cursor-pointer ${
+                    chartRange === r
+                      ? 'bg-accent-corail text-white'
+                      : 'border border-border-custom text-text-secondary hover:border-accent-corail/40'
+                  }`}
+                >
+                  {chartRangeLabels[r]}
+                </button>
+              ))}
+              <button
+                onClick={() => setChartRange('custom')}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition-all cursor-pointer ${
+                  chartRange === 'custom'
+                    ? 'bg-accent-corail text-white'
+                    : 'border border-border-custom text-text-secondary hover:border-accent-corail/40'
+                }`}
+              >
+                Personnalisé
+              </button>
+            </div>
           </div>
-          <div className="flex-1 min-h-[220px]">
+
+          {chartRange === 'custom' && (
+            <div className="flex items-center gap-2 mb-4">
+              <input
+                type="date"
+                value={chartCustomStart}
+                onChange={(e) => setChartCustomStart(e.target.value)}
+                className="px-2.5 py-1.5 rounded-lg border border-border-custom bg-transparent text-[11px] text-text-primary focus:outline-none focus:border-accent-corail"
+              />
+              <span className="text-[11px] text-text-secondary">à</span>
+              <input
+                type="date"
+                value={chartCustomEnd}
+                onChange={(e) => setChartCustomEnd(e.target.value)}
+                className="px-2.5 py-1.5 rounded-lg border border-border-custom bg-transparent text-[11px] text-text-primary focus:outline-none focus:border-accent-corail"
+              />
+              <button
+                onClick={fetchChart}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-accent-corail/10 text-accent-corail hover:bg-accent-corail hover:text-white transition-all cursor-pointer"
+              >
+                Appliquer
+              </button>
+            </div>
+          )}
+
+          <div className="flex-1 min-h-[220px] relative">
+            {isChartLoading && (
+              <div className="absolute inset-0 bg-bg-surface/60 backdrop-blur-[1px] flex items-center justify-center z-10 rounded-lg">
+                <Loader2 className="w-6 h-6 text-accent-corail animate-spin" />
+              </div>
+            )}
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>

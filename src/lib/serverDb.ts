@@ -34,6 +34,20 @@ export interface ServerPurchase {
   purchasedAt?: string;
 }
 
+export interface ServerDonation {
+  id: string;
+  creatorId: string;
+  donorName: string;
+  donorEmail?: string;
+  donorMessage?: string;
+  status: 'pending' | 'completed' | 'failed';
+  paymentReference: string; // cartId
+  amount: number;
+  commissionAmount: number;
+  creatorNetAmount: number;
+  createdAt: string;
+}
+
 export interface ServerTransaction {
   id: string;
   provider: 'maketou';
@@ -68,6 +82,7 @@ export interface ServerNotification {
 
 interface DBStructure {
   purchases: ServerPurchase[];
+  donations: ServerDonation[];
   transactions: ServerTransaction[];
   notifications: ServerNotification[];
   subscriptions: ServerSubscription[];
@@ -85,7 +100,7 @@ function loadDB(): DBStructure {
   // Try to load from disk
   try {
     if (!fs.existsSync(DB_FILE_PATH)) {
-      const defaultDB: DBStructure = { purchases: [], transactions: [], notifications: [], subscriptions: [], creator_profiles: [], withdrawals: [] };
+      const defaultDB: DBStructure = { purchases: [], donations: [], transactions: [], notifications: [], subscriptions: [], creator_profiles: [], withdrawals: [] };
       try {
         fs.writeFileSync(DB_FILE_PATH, JSON.stringify(defaultDB, null, 2), 'utf-8');
       } catch (writeErr) {
@@ -95,6 +110,7 @@ function loadDB(): DBStructure {
     } else {
       const content = fs.readFileSync(DB_FILE_PATH, 'utf-8');
       const db = JSON.parse(content);
+      db.donations = db.donations || [];
       db.subscriptions = db.subscriptions || [];
       db.creator_profiles = db.creator_profiles || [];
       db.withdrawals = db.withdrawals || [];
@@ -103,7 +119,7 @@ function loadDB(): DBStructure {
   } catch (err) {
     console.error('[ServerDB] Error loading database from disk, falling back to in-memory mode:', err);
     if (!memoryDb) {
-      memoryDb = { purchases: [], transactions: [], notifications: [], subscriptions: [], creator_profiles: [], withdrawals: [] };
+      memoryDb = { purchases: [], donations: [], transactions: [], notifications: [], subscriptions: [], creator_profiles: [], withdrawals: [] };
     }
   }
 
@@ -242,6 +258,47 @@ export const serverDb = {
     db.purchases.push(newPurchase);
     saveDB(db);
     return newPurchase;
+  },
+
+  getDonations(): ServerDonation[] {
+    return loadDB().donations;
+  },
+
+  getDonation(id: string): ServerDonation | undefined {
+    return loadDB().donations.find(d => d.id === id);
+  },
+
+  getDonationByCart(cartId: string): ServerDonation | undefined {
+    return loadDB().donations.find(d => d.paymentReference === cartId);
+  },
+
+  addDonation(donation: Omit<ServerDonation, 'id' | 'createdAt'> & { id?: string }): ServerDonation {
+    const db = loadDB();
+    const newDonation: ServerDonation = {
+      creatorId: donation.creatorId,
+      donorName: donation.donorName,
+      donorEmail: donation.donorEmail,
+      donorMessage: donation.donorMessage,
+      status: donation.status,
+      paymentReference: donation.paymentReference,
+      amount: donation.amount,
+      commissionAmount: donation.commissionAmount,
+      creatorNetAmount: donation.creatorNetAmount,
+      id: donation.id || `donation_${Math.random().toString(36).substring(2, 11)}`,
+      createdAt: new Date().toISOString()
+    };
+    db.donations.push(newDonation);
+    saveDB(db);
+    return newDonation;
+  },
+
+  updateDonation(id: string, updates: Partial<ServerDonation>): ServerDonation | null {
+    const db = loadDB();
+    const idx = db.donations.findIndex(d => d.id === id);
+    if (idx === -1) return null;
+    db.donations[idx] = { ...db.donations[idx], ...updates };
+    saveDB(db);
+    return db.donations[idx];
   },
 
   updatePurchase(id: string, updates: Partial<ServerPurchase>): ServerPurchase | null {
