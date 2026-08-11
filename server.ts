@@ -38,12 +38,16 @@ const SUBSCRIPTION_PRICE_FCFA = 4990;
 app.use(express.json());
 
 // Resolves the public URL of this deployment for building payment redirect links.
-// Ignores unset/placeholder env values (e.g. "MY_APP_URL" left over from scaffolding)
-// and falls back to VERCEL_URL, which Vercel sets automatically on every deployment.
+// Ignores unset/placeholder env values (e.g. "MY_APP_URL" left over from scaffolding).
+//
+// VERCEL_PROJECT_PRODUCTION_URL is preferred over VERCEL_URL: the latter is the
+// per-deployment hostname, which changes on every deploy and can sit behind Vercel's
+// deployment protection — a buyer redirected there after paying would hit a login wall.
 const getAppUrl = () => {
   const isRealUrl = (v?: string) => !!v && /^https?:\/\//.test(v);
   const configuredAppUrl = [process.env.NEXT_PUBLIC_APP_URL, process.env.APP_URL].find(isRealUrl);
-  const vercelAppUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined;
+  const vercelHost = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+  const vercelAppUrl = vercelHost ? `https://${vercelHost}` : undefined;
   let url = (configuredAppUrl || vercelAppUrl || `http://localhost:${PORT}`).replace(/\/$/, '');
   if (url.includes('localhost')) {
     url = url.replace('localhost', 'lvh.me');
@@ -77,6 +81,268 @@ const supabaseAdmin = isSupabaseConfigured && supabaseServiceRoleKey
 
 console.log(`[Server] Supabase configuration status: ${isSupabaseConfigured ? 'CONNECTED' : 'DEMO MODE'}`);
 console.log(`[Server] Supabase Admin status: ${supabaseAdmin !== supabase ? 'SERVICE ROLE ENABLED' : 'FALLBACK MODE'}`);
+
+// PostgREST code for "column not found in schema cache" — used to detect a database that
+// hasn't had the buyer-identity migration applied yet, so writes can degrade instead of fail.
+const MISSING_COLUMN_ERROR = 'PGRST204';
+
+/**
+ * Loads a purchase by id, shaped like a `ServerPurchase` regardless of where it comes from.
+ *
+ * Supabase is the source of truth: the local JSON db falls back to in-memory when the disk
+ * is read-only (serverless), so a purchase written by one request is invisible to the next.
+ * Reading it first is what makes payment confirmation and the buyer portal work in production.
+ */
+function mapPurchaseRow(row: any) {
+  return {
+    id: row.id,
+    buyerPhone: row.buyer_phone || '',
+    buyerEmail: row.buyer_email || '',
+    buyerFirstName: row.buyer_first_name || 'Un acheteur',
+    buyerLastName: row.buyer_last_name || '',
+    contentId: row.content_id,
+    status: row.status as 'pending' | 'completed' | 'failed',
+    paymentReference: row.payment_reference || '',
+    amountPaid: row.amount_paid_fcfa || 0,
+    commissionAmount: row.commission_amount_fcfa || 0,
+    creatorNetAmount: row.creator_net_amount_fcfa || 0,
+    createdAt: row.created_at,
+    // Supabase has no separate "purchased at" column — created_at is the reference date there.
+    purchasedAt: undefined as string | undefined
+  };
+}
+
+async function getPurchaseById(purchaseId: string) {
+  if (supabaseAdmin) {
+    try {
+      const { data } = await supabaseAdmin
+        .from('purchases')
+        .select('*')
+        .eq('id', purchaseId)
+        .maybeSingle();
+
+      if (data) return mapPurchaseRow(data);
+    } catch (err) {
+      console.warn('[Server] getPurchaseById: Supabase lookup failed, falling back to local db:', err);
+    }
+  }
+
+  // Local/demo mode, or a purchase that only ever made it to the JSON db.
+  return serverDb.getPurchase(purchaseId) || null;
+}
+
+/**
+ * Every completed purchase tied to a buyer's email, newest first. Powers the buyer portal.
+ *
+ * Falls back to the local db when Supabase returns nothing — either because the
+ * buyer-identity migration hasn't been applied yet, or because the rows predate it.
+ */
+async function getCompletedPurchasesByEmail(email: string) {
+  const emailStr = email.toLowerCase().trim();
+
+  if (supabaseAdmin) {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('purchases')
+        .select('*')
+        .ilike('buyer_email', emailStr)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('[Server] getCompletedPurchasesByEmail: Supabase query failed, using local db:', error.message);
+      } else if (data && data.length > 0) {
+        return data.map(mapPurchaseRow);
+      }
+    } catch (err) {
+      console.warn('[Server] getCompletedPurchasesByEmail: Supabase lookup threw, using local db:', err);
+    }
+  }
+
+  return serverDb
+    .getPurchases()
+    .filter(p => p.buyerEmail.toLowerCase() === emailStr && p.status === 'completed')
+    .sort((a, b) =>
+      new Date(b.purchasedAt || b.createdAt).getTime() - new Date(a.purchasedAt || a.createdAt).getTime()
+    );
+}
+
+type PurchaseRecord = NonNullable<Awaited<ReturnType<typeof getPurchaseById>>>;
+type PaymentOutcome = 'completed' | 'failed' | 'waiting_payment';
+
+/** Translates a Maketou cart status into the outcome we store. */
+function mapCartStatus(cartStatus?: string): PaymentOutcome {
+  if (cartStatus === 'completed' || cartStatus === 'success') return 'completed';
+  if (cartStatus === 'payment_failed' || cartStatus === 'failed' || cartStatus === 'abandoned') return 'failed';
+  return 'waiting_payment';
+}
+
+/**
+ * Asks Maketou for a cart's current status.
+ * Returns null when the call itself failed, so callers can leave the payment pending and
+ * retry later instead of wrongly marking it as failed.
+ */
+async function fetchCartStatus(cartId: string): Promise<PaymentOutcome | null> {
+  // Simulation mode (no API key configured, or a locally generated mock cart).
+  if (cartId.startsWith('mock_') || !process.env.MAKETOU_API_KEY) return 'completed';
+
+  try {
+    const maketouRes = await fetch(`https://api.maketou.net/api/v1/stores/cart/${cartId}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${process.env.MAKETOU_API_KEY}` }
+    });
+
+    if (!maketouRes.ok) {
+      console.error(`[Server] Maketou status check failed for cart ${cartId}: ${maketouRes.status} ${maketouRes.statusText}`);
+      return null;
+    }
+
+    const cartData = await maketouRes.json();
+    return mapCartStatus(cartData.status || cartData.cart?.status);
+  } catch (err) {
+    console.error(`[Server] Maketou status check threw for cart ${cartId}:`, err);
+    return null;
+  }
+}
+
+/**
+ * Records a purchase as paid everywhere and notifies the creator.
+ *
+ * Idempotent by design: both the buyer's return page and the reconciliation job can reach
+ * the same purchase, and the return page polls every few seconds. Side effects that must not
+ * repeat (the creator's "Nouvelle vente" notification) are skipped when the purchase was
+ * already completed.
+ */
+async function finalizePurchase(purchase: PurchaseRecord, cartId: string, knownContentTitle?: string) {
+  const alreadyCompleted = purchase.status === 'completed';
+
+  serverDb.updatePurchase(purchase.id, { status: 'completed', purchasedAt: new Date().toISOString() });
+  serverDb.updateTransactionByCart(cartId, { status: 'success' });
+
+  let contentTitle = knownContentTitle || 'Contenu exclusif';
+  let creatorUserId: string | null = null;
+
+  if (supabaseAdmin) {
+    try {
+      const { data: contentData } = await supabaseAdmin
+        .from('contents')
+        .select('title, creator_profiles(id, user_id)')
+        .eq('id', purchase.contentId)
+        .maybeSingle();
+
+      if (contentData) {
+        if (!knownContentTitle && contentData.title) contentTitle = contentData.title;
+        const creatorProfile = contentData.creator_profiles as any;
+        creatorUserId = creatorProfile?.user_id || creatorProfile?.id || null;
+      }
+
+      await supabaseAdmin.from('purchases').update({ status: 'completed' }).eq('id', purchase.id);
+      await supabaseAdmin.from('transactions').update({ status: 'success' }).eq('provider_transaction_id', cartId);
+
+      if (creatorUserId && !alreadyCompleted) {
+        await supabaseAdmin.from('notifications').insert({
+          user_id: creatorUserId,
+          title: 'Nouvelle vente !',
+          message: `L'acheteur ${purchase.buyerFirstName} a débloqué votre contenu "${contentTitle}" pour ${purchase.amountPaid} FCFA.`,
+          is_read: false
+        });
+      }
+    } catch (dbErr) {
+      console.error('[Server] finalizePurchase: Supabase write warning:', dbErr);
+    }
+  }
+
+  if (!alreadyCompleted) {
+    serverDb.addNotification({
+      userId: creatorUserId || 'creator_1',
+      type: 'new_sale',
+      title: 'Nouvelle vente !',
+      message: `L'acheteur ${purchase.buyerFirstName} a débloqué votre contenu "${contentTitle}" pour ${purchase.amountPaid} FCFA.`
+    });
+  }
+
+  return { contentTitle, creatorUserId };
+}
+
+/** Donation counterpart of `getPurchaseById` — Supabase first, local JSON db as fallback. */
+async function getDonationById(donationId: string) {
+  if (supabaseAdmin) {
+    try {
+      const { data } = await supabaseAdmin
+        .from('donations')
+        .select('*')
+        .eq('id', donationId)
+        .maybeSingle();
+
+      if (data) {
+        return {
+          id: data.id,
+          creatorId: data.creator_id,
+          donorName: data.donor_name || 'Un fan',
+          donorEmail: data.donor_email || undefined,
+          donorMessage: data.donor_message || undefined,
+          status: data.status as 'pending' | 'completed' | 'failed',
+          paymentReference: data.payment_reference || '',
+          amount: data.amount_fcfa || 0,
+          commissionAmount: data.commission_amount_fcfa || 0,
+          creatorNetAmount: data.creator_net_amount_fcfa || 0,
+          createdAt: data.created_at
+        };
+      }
+    } catch (err) {
+      console.warn('[Server] getDonationById: Supabase lookup failed, falling back to local db:', err);
+    }
+  }
+
+  return serverDb.getDonation(donationId) || null;
+}
+
+type DonationRecord = NonNullable<Awaited<ReturnType<typeof getDonationById>>>;
+
+/** Records a donation as received everywhere. Idempotent, like `finalizePurchase`. */
+async function finalizeDonation(donation: DonationRecord, cartId: string) {
+  serverDb.updateDonation(donation.id, { status: 'completed' });
+  serverDb.updateTransactionByCart(cartId, { status: 'success' });
+
+  if (supabaseAdmin) {
+    try {
+      await supabaseAdmin.from('donations').update({ status: 'completed' }).eq('id', donation.id);
+      await supabaseAdmin.from('transactions').update({ status: 'success' }).eq('provider_transaction_id', cartId);
+    } catch (dbErr) {
+      console.error('[Server] finalizeDonation: Supabase write warning:', dbErr);
+    }
+  }
+}
+
+/** Records a donation as failed everywhere. */
+async function markDonationFailed(donation: DonationRecord, cartId: string) {
+  serverDb.updateDonation(donation.id, { status: 'failed' });
+  serverDb.updateTransactionByCart(cartId, { status: 'failed' });
+
+  if (supabaseAdmin) {
+    try {
+      await supabaseAdmin.from('donations').update({ status: 'failed' }).eq('id', donation.id);
+      await supabaseAdmin.from('transactions').update({ status: 'failed' }).eq('provider_transaction_id', cartId);
+    } catch (dbErr) {
+      console.error('[Server] markDonationFailed: Supabase write warning:', dbErr);
+    }
+  }
+}
+
+/** Records a purchase as failed everywhere. */
+async function markPurchaseFailed(purchase: PurchaseRecord, cartId: string) {
+  serverDb.updatePurchase(purchase.id, { status: 'failed' });
+  serverDb.updateTransactionByCart(cartId, { status: 'failed' });
+
+  if (supabaseAdmin) {
+    try {
+      await supabaseAdmin.from('purchases').update({ status: 'failed' }).eq('id', purchase.id);
+      await supabaseAdmin.from('transactions').update({ status: 'failed' }).eq('provider_transaction_id', cartId);
+    } catch (dbErr) {
+      console.error('[Server] markPurchaseFailed: Supabase write warning:', dbErr);
+    }
+  }
+}
 
 // Resolves creators flagged as `is_test_account` (fake promo-video data) and the content
 // they own, so admin-facing revenue aggregates (KPIs, chart, transactions...) can exclude
@@ -116,6 +382,15 @@ function generateFakePaymentReference(provider?: string | null): string {
   return `${prefix}-${num}-MOMO`;
 }
 
+// Real buyers use whichever Mobile Money operator they personally have, not the creator's own
+// payout provider — so fake/demo transactions should vary across Wave/Orange/MTN/Moov instead
+// of all sharing the creator's single payout_provider (which made every generated sale look
+// like it came from the same operator).
+const MOMO_PROVIDERS = ['wave', 'orange', 'mtn', 'moov'];
+function randomMomoProvider(): string {
+  return MOMO_PROVIDERS[Math.floor(Math.random() * MOMO_PROVIDERS.length)];
+}
+
 // Picks a past date biased toward "now" (recency-weighted), so a batch of generated fake
 // transactions reads as organic growth (few sales early on, more as time approaches today)
 // instead of a flat, obviously-random spread. Also lightly favors weekends.
@@ -144,8 +419,8 @@ function randomGrowthDate(maxDaysAgo: number): string {
 app.post('/api/payment/create-cart', async (req, res) => {
   const { contentId, buyerEmail, buyerFirstName, buyerLastName, buyerPhone } = req.body;
 
-  if (!contentId || !buyerEmail || !buyerFirstName || !buyerLastName) {
-    return res.status(400).json({ error: 'Champs obligatoires manquants (contentId, buyerEmail, buyerFirstName, buyerLastName).' });
+  if (!contentId || !buyerEmail || !buyerFirstName || !buyerLastName || !buyerPhone) {
+    return res.status(400).json({ error: 'Champs obligatoires manquants (contentId, buyerEmail, buyerFirstName, buyerLastName, buyerPhone).' });
   }
 
   try {
@@ -223,26 +498,47 @@ app.post('/api/payment/create-cart', async (req, res) => {
     }
 
     // c. Create a purchase line with status = 'pending'
-    const commission_amount = Math.round(price_amount * 0.18);
+    const commission_amount = Math.round(price_amount * 0.10);
     const creator_net_amount = price_amount - commission_amount;
 
     let purchaseId = `purchase_${Math.random().toString(36).substring(2, 11)}`;
 
-    if (supabase) {
+    if (supabaseAdmin) {
       try {
-        const { data: pbData, error: pbErr } = await supabase
+        const purchaseRow: Record<string, any> = {
+          buyer_phone: buyerPhone || 'Non fourni',
+          content_id: contentId,
+          status: 'pending',
+          amount_paid_fcfa: price_amount,
+          commission_amount_fcfa: commission_amount,
+          creator_net_amount_fcfa: creator_net_amount,
+          payment_reference: 'temp_ref_' + Date.now()
+        };
+
+        // The buyer's identity is persisted in Supabase (not just the local JSON db) so that
+        // payment confirmation and the buyer portal keep working in production, where that
+        // file doesn't survive between requests. These columns were added after the initial
+        // schema: if the migration hasn't been applied yet, fall back to inserting without
+        // them rather than losing the purchase entirely.
+        let { data: pbData, error: pbErr } = await supabaseAdmin
           .from('purchases')
           .insert({
-            buyer_phone: buyerPhone || 'Non fourni',
-            content_id: contentId,
-            status: 'pending',
-            amount_paid_fcfa: price_amount,
-            commission_amount_fcfa: commission_amount,
-            creator_net_amount_fcfa: creator_net_amount,
-            payment_reference: 'temp_ref_' + Date.now()
+            ...purchaseRow,
+            buyer_email: buyerEmail,
+            buyer_first_name: buyerFirstName,
+            buyer_last_name: buyerLastName
           })
           .select()
           .single();
+
+        if (pbErr && pbErr.code === MISSING_COLUMN_ERROR) {
+          console.warn('[Server] Colonnes acheteur absentes (migration SQL non appliquée) — insertion sans identité acheteur.');
+          ({ data: pbData, error: pbErr } = await supabaseAdmin
+            .from('purchases')
+            .insert(purchaseRow)
+            .select()
+            .single());
+        }
 
         if (!pbErr && pbData) {
           purchaseId = pbData.id;
@@ -274,7 +570,12 @@ app.post('/api/payment/create-cart', async (req, res) => {
     // d. Call Maketou Checkout or Simulate if not configured
     if (isMaketouConfigured) {
       const appUrl = getAppUrl();
-      const redirectURL = `${appUrl}/payment/confirm?cartId={cartId}&purchaseId=${purchaseId}`;
+      // No cartId here: we don't know it yet at this point (Maketou hasn't created the cart),
+      // and Maketou doesn't substitute a placeholder token in-place — it appends its own
+      // "cartId=<real-id>" query param to whatever redirectURL we give it. Pre-filling our
+      // own "cartId=" here used to collide with that, leaving two cartId params in the final
+      // URL with ours (a literal, unresolved placeholder) taking priority when read back.
+      const redirectURL = `${appUrl}/payment/confirm?purchaseId=${purchaseId}`;
 
       // Maketou requires strict E.164 format (e.g. +221771234567); reject anything else
       // rather than sending a malformed value that fails their validation for the whole cart.
@@ -333,10 +634,10 @@ app.post('/api/payment/create-cart', async (req, res) => {
         type: 'purchase'
       });
 
-      if (supabase) {
+      if (supabaseAdmin) {
         try {
           // Attempt insertion in custom transactions table if it exists
-          await supabase
+          await supabaseAdmin
             .from('transactions')
             .insert({
               provider: 'maketou',
@@ -348,7 +649,7 @@ app.post('/api/payment/create-cart', async (req, res) => {
             .maybeSingle();
 
           // Update purchase with payment_reference
-          await supabase
+          await supabaseAdmin
             .from('purchases')
             .update({ payment_reference: cartId })
             .eq('id', purchaseId);
@@ -399,7 +700,7 @@ app.get('/api/payment/check-status', async (req, res) => {
   }
 
   try {
-    const purchase = serverDb.getPurchase(purchaseId as string);
+    const purchase = await getPurchaseById(purchaseId as string);
     if (!purchase) {
       return res.status(404).json({ error: 'Achat non trouvé.' });
     }
@@ -442,126 +743,30 @@ app.get('/api/payment/check-status', async (req, res) => {
       }
     }
 
-    let statusToSet: 'completed' | 'failed' | 'waiting_payment' = 'waiting_payment';
+    console.log(`[Server] Polling Maketou status for cart ${cartId}`);
+    const cartStatus = await fetchCartStatus(cartId as string);
 
-    // Check if mock mode
-    const isMock = (cartId as string).startsWith('mock_') || !process.env.MAKETOU_API_KEY;
-
-    if (isMock) {
-      // Simulated: completes immediately
-      statusToSet = 'completed';
-    } else {
-      // Call Maketou
-      console.log(`[Server] Polling Maketou status for cart ${cartId}`);
-      const maketouRes = await fetch(`https://api.maketou.net/api/v1/stores/cart/${cartId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${process.env.MAKETOU_API_KEY}`
-        }
-      });
-
-      if (!maketouRes.ok) {
-        console.error('[Server] Maketou status check error:', maketouRes.statusText);
-        return res.status(500).json({ error: 'Impossible de vérifier le statut auprès de Maketou.' });
-      }
-
-      const cartData = await maketouRes.json();
-      console.log('[Server] Maketou Cart status details:', cartData);
-
-      const cartStatus = cartData.status || cartData.cart?.status;
-
-      if (cartStatus === 'completed' || cartStatus === 'success') {
-        statusToSet = 'completed';
-      } else if (cartStatus === 'payment_failed' || cartStatus === 'failed' || cartStatus === 'abandoned') {
-        statusToSet = 'failed';
-      } else {
-        statusToSet = 'waiting_payment';
-      }
+    if (cartStatus === null) {
+      return res.status(500).json({ error: 'Impossible de vérifier le statut auprès de Maketou.' });
     }
+
+    const statusToSet = cartStatus;
 
     // Process State Changes
     if (statusToSet === 'completed') {
-      // Update local db
-      serverDb.updatePurchase(purchase.id, { status: 'completed', purchasedAt: new Date().toISOString() });
-      serverDb.updateTransactionByCart(cartId as string, { status: 'success' });
+      const finalized = await finalizePurchase(purchase, cartId as string, contentTitle);
 
-      // Fetch content details to know creator to notify
-      let creatorUserId: string | null = null;
-
-      if (supabase) {
-        try {
-          const { data: contentData } = await supabase
-            .from('contents')
-            .select('*, creator_profiles(*)')
-            .eq('id', purchase.contentId)
-            .maybeSingle();
-
-          if (contentData) {
-            creatorUserId = contentData.creator_profiles?.user_id || contentData.creator_profiles?.id;
-          }
-
-          // Update Supabase tables
-          await supabase
-            .from('purchases')
-            .update({ status: 'completed' })
-            .eq('id', purchase.id);
-
-          try {
-            await supabase
-              .from('transactions')
-              .update({ status: 'success' })
-              .eq('provider_transaction_id', cartId);
-          } catch (e) {}
-
-          // Create notification in Supabase
-          if (creatorUserId) {
-            await supabase
-              .from('notifications')
-              .insert({
-                user_id: creatorUserId,
-                title: 'Nouvelle vente !',
-                message: `L'acheteur ${purchase.buyerFirstName} a débloqué votre contenu "${contentTitle}" pour ${purchase.amountPaid} FCFA.`,
-                is_read: false
-              });
-          }
-
-        } catch (dbErr) {
-          console.error('[Server] Supabase completed status write warning:', dbErr);
-        }
-      }
-
-      // Add server local notification
-      serverDb.addNotification({
-        userId: creatorUserId || 'creator_1',
-        type: 'new_sale',
-        title: 'Nouvelle vente !',
-        message: `L'acheteur ${purchase.buyerFirstName} a débloqué votre contenu "${contentTitle}" pour ${purchase.amountPaid} FCFA.`
+      return res.json({
+        status: 'completed',
+        contentId: purchase.contentId,
+        contentTitle: finalized.contentTitle,
+        creatorUsername,
+        buyerEmail: purchase.buyerEmail,
+        buyerPhone: purchase.buyerPhone
       });
 
-      return res.json({ status: 'completed', contentId: purchase.contentId, contentTitle, creatorUsername });
-
     } else if (statusToSet === 'failed') {
-      serverDb.updatePurchase(purchase.id, { status: 'failed' });
-      serverDb.updateTransactionByCart(cartId as string, { status: 'failed' });
-
-      if (supabase) {
-        try {
-          await supabase
-            .from('purchases')
-            .update({ status: 'failed' })
-            .eq('id', purchase.id);
-
-          try {
-            await supabase
-              .from('transactions')
-              .update({ status: 'failed' })
-              .eq('provider_transaction_id', cartId);
-          } catch (e) {}
-        } catch (dbErr) {
-          console.error('[Server] Supabase failed status write warning:', dbErr);
-        }
-      }
-
+      await markPurchaseFailed(purchase, cartId as string);
       return res.json({ status: 'failed', contentId: purchase.contentId, contentTitle, creatorUsername });
     } else {
       return res.json({ status: 'waiting_payment', contentId: purchase.contentId, contentTitle, creatorUsername });
@@ -615,14 +820,14 @@ app.post('/api/payment/create-donation-cart', async (req, res) => {
     }
 
     // Same commission rate applied to content purchases (server.ts create-cart handler)
-    const commission_amount = Math.round(donationAmount * 0.18);
+    const commission_amount = Math.round(donationAmount * 0.10);
     const creator_net_amount = donationAmount - commission_amount;
 
     let donationId = `donation_${Math.random().toString(36).substring(2, 11)}`;
 
-    if (supabase) {
+    if (supabaseAdmin) {
       try {
-        const { data: donData, error: donErr } = await supabase
+        const { data: donData, error: donErr } = await supabaseAdmin
           .from('donations')
           .insert({
             creator_id: creatorId,
@@ -665,7 +870,8 @@ app.post('/api/payment/create-donation-cart', async (req, res) => {
 
     if (isMaketouConfigured) {
       const appUrl = getAppUrl();
-      const redirectURL = `${appUrl}/payment/confirm?cartId={cartId}&purchaseId=${donationId}&kind=donation`;
+      // Same reasoning as the content-purchase cart: leave cartId out, Maketou appends its own.
+      const redirectURL = `${appUrl}/payment/confirm?purchaseId=${donationId}&kind=donation`;
 
       const [donorFirstName, ...rest] = (donorName as string).trim().split(' ');
       const donorLastName = rest.join(' ') || donorFirstName;
@@ -708,9 +914,9 @@ app.post('/api/payment/create-donation-cart', async (req, res) => {
       serverDb.updateDonation(donationId, { paymentReference: cartId });
       serverDb.addTransaction({ provider: 'maketou', providerTransactionId: cartId, status: 'pending', type: 'purchase' });
 
-      if (supabase) {
+      if (supabaseAdmin) {
         try {
-          await supabase.from('donations').update({ payment_reference: cartId }).eq('id', donationId);
+          await supabaseAdmin.from('donations').update({ payment_reference: cartId }).eq('id', donationId);
         } catch (dbErr) {
           console.warn('[Server] Supabase donation reference update skipped:', dbErr);
         }
@@ -749,7 +955,7 @@ app.get('/api/payment/check-donation-status', async (req, res) => {
   }
 
   try {
-    const donation = serverDb.getDonation(purchaseId as string);
+    const donation = await getDonationById(purchaseId as string);
     if (!donation) {
       return res.status(404).json({ error: 'Don non trouvé.' });
     }
@@ -768,63 +974,18 @@ app.get('/api/payment/check-donation-status', async (req, res) => {
       }
     }
 
-    let statusToSet: 'completed' | 'failed' | 'waiting_payment' = 'waiting_payment';
-    const isMock = (cartId as string).startsWith('mock_') || !process.env.MAKETOU_API_KEY;
+    const statusToSet = await fetchCartStatus(cartId as string);
 
-    if (isMock) {
-      statusToSet = 'completed';
-    } else {
-      const maketouRes = await fetch(`https://api.maketou.net/api/v1/stores/cart/${cartId}`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${process.env.MAKETOU_API_KEY}` }
-      });
-
-      if (!maketouRes.ok) {
-        console.error('[Server] Maketou donation status check error:', maketouRes.statusText);
-        return res.status(500).json({ error: 'Impossible de vérifier le statut auprès de Maketou.' });
-      }
-
-      const cartData = await maketouRes.json();
-      const cartStatus = cartData.status || cartData.cart?.status;
-
-      if (cartStatus === 'completed' || cartStatus === 'success') {
-        statusToSet = 'completed';
-      } else if (cartStatus === 'payment_failed' || cartStatus === 'failed' || cartStatus === 'abandoned') {
-        statusToSet = 'failed';
-      } else {
-        statusToSet = 'waiting_payment';
-      }
+    if (statusToSet === null) {
+      return res.status(500).json({ error: 'Impossible de vérifier le statut auprès de Maketou.' });
     }
 
     if (statusToSet === 'completed') {
-      serverDb.updateDonation(donation.id, { status: 'completed' });
-      serverDb.updateTransactionByCart(cartId as string, { status: 'success' });
-
-      if (supabase) {
-        try {
-          await supabase.from('donations').update({ status: 'completed' }).eq('id', donation.id);
-          try {
-            await supabase.from('transactions').update({ status: 'success' }).eq('provider_transaction_id', cartId);
-          } catch (e) {}
-        } catch (dbErr) {
-          console.error('[Server] Supabase donation completed write warning:', dbErr);
-        }
-      }
-
+      await finalizeDonation(donation, cartId as string);
       return res.json({ status: 'completed', creatorUsername, amount: donation.amount });
 
     } else if (statusToSet === 'failed') {
-      serverDb.updateDonation(donation.id, { status: 'failed' });
-      serverDb.updateTransactionByCart(cartId as string, { status: 'failed' });
-
-      if (supabase) {
-        try {
-          await supabase.from('donations').update({ status: 'failed' }).eq('id', donation.id);
-        } catch (dbErr) {
-          console.error('[Server] Supabase donation failed write warning:', dbErr);
-        }
-      }
-
+      await markDonationFailed(donation, cartId as string);
       return res.json({ status: 'failed', creatorUsername });
     } else {
       return res.json({ status: 'waiting_payment', creatorUsername });
@@ -972,10 +1133,7 @@ app.get('/api/payment/access-list', async (req, res) => {
     return res.status(400).json({ error: 'Email requis.' });
   }
   try {
-    const purchases = serverDb.getPurchases();
-    const activePurchases = purchases.filter(
-      p => p.buyerEmail.toLowerCase() === (email as string).toLowerCase() && p.status === 'completed'
-    );
+    const activePurchases = await getCompletedPurchasesByEmail(email as string);
     const contentIds = activePurchases.map(p => p.contentId);
     return res.json({ contentIds });
   } catch (err: any) {
@@ -997,12 +1155,8 @@ app.get('/api/payment/access', async (req, res) => {
   }
 
   try {
-    const purchases = serverDb.getPurchases();
-    const hasAccess = purchases.some(
-      p => p.contentId === contentId && 
-           p.buyerEmail.toLowerCase() === (email as string).toLowerCase() && 
-           p.status === 'completed'
-    );
+    const purchases = await getCompletedPurchasesByEmail(email as string);
+    const hasAccess = purchases.some(p => p.contentId === contentId);
 
     if (!hasAccess) {
       return res.json({ hasAccess: false });
@@ -1081,10 +1235,13 @@ app.get('/api/payment/access', async (req, res) => {
 async function isCreatorSubscribedServer(creatorId: string): Promise<boolean> {
   const graceLimit = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000); // 3 days ago
 
-  if (supabase) {
+  if (supabaseAdmin) {
     try {
+      // Uses the service role: the "subscriptions" RLS policy requires auth.uid(),
+      // but this check runs server-side with no end-user session, so the anon
+      // client would always see zero rows here regardless of real status.
       // Fetch user_id for this creatorId first
-      const { data: currentCreator } = await supabase
+      const { data: currentCreator } = await supabaseAdmin
         .from('creator_profiles')
         .select('user_id')
         .eq('id', creatorId)
@@ -1094,13 +1251,13 @@ async function isCreatorSubscribedServer(creatorId: string): Promise<boolean> {
         const userId = currentCreator.user_id;
 
         // 1. Check if ANY creator profile for this user has is_premium set
-        const { data: premiumProfiles } = await supabase
+        const { data: premiumProfiles } = await supabaseAdmin
           .from('creator_profiles')
           .select('is_premium, premium_expires_at')
           .eq('user_id', userId)
           .eq('is_premium', true);
 
-        const hasPremiumProfile = (premiumProfiles || []).some(cp => 
+        const hasPremiumProfile = (premiumProfiles || []).some(cp =>
           !cp.premium_expires_at || new Date(cp.premium_expires_at).getTime() > graceLimit.getTime()
         );
 
@@ -1109,15 +1266,15 @@ async function isCreatorSubscribedServer(creatorId: string): Promise<boolean> {
         }
 
         // 2. Check if ANY creator profile for this user has an active subscription
-        const { data: userProfiles } = await supabase
+        const { data: userProfiles } = await supabaseAdmin
           .from('creator_profiles')
           .select('id')
           .eq('user_id', userId);
-        
+
         const profileIds = (userProfiles || []).map(p => p.id);
 
         if (profileIds.length > 0) {
-          const { data: subs, error } = await supabase
+          const { data: subs, error } = await supabaseAdmin
             .from('subscriptions')
             .select('end_date')
             .in('creator_id', profileIds)
@@ -1160,10 +1317,10 @@ async function apply_subscription_expiry() {
   const thresholdDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000); // 3 days ago
 
   try {
-    if (supabase) {
+    if (supabaseAdmin) {
       try {
         // Find subscriptions that are expired past 3 days grace
-        const { data: expiredSubs, error: subErr } = await supabase
+        const { data: expiredSubs, error: subErr } = await supabaseAdmin
           .from('subscriptions')
           .select('id, creator_id, end_date')
           .eq('status', 'active')
@@ -1172,7 +1329,7 @@ async function apply_subscription_expiry() {
         if (!subErr && expiredSubs && expiredSubs.length > 0) {
           for (const sub of expiredSubs) {
             // Check if creator profile is_premium is set to true manually
-            const { data: creatorProfile } = await supabase
+            const { data: creatorProfile } = await supabaseAdmin
               .from('creator_profiles')
               .select('user_id, is_premium, premium_expires_at')
               .eq('id', sub.creator_id)
@@ -1180,12 +1337,12 @@ async function apply_subscription_expiry() {
 
             if (creatorProfile) {
               // 1. Check if user has any active premium profiles
-              const { data: userProfiles } = await supabase
+              const { data: userProfiles } = await supabaseAdmin
                 .from('creator_profiles')
                 .select('id, is_premium, premium_expires_at')
                 .eq('user_id', creatorProfile.user_id);
-              
-              const hasPremium = (userProfiles || []).some(cp => 
+
+              const hasPremium = (userProfiles || []).some(cp =>
                 cp.is_premium && (!cp.premium_expires_at || new Date(cp.premium_expires_at).getTime() > Date.now())
               );
               if (hasPremium) {
@@ -1196,14 +1353,14 @@ async function apply_subscription_expiry() {
               // 2. Check if user has any other active subscriptions
               const profileIds = (userProfiles || []).map(p => p.id);
               if (profileIds.length > 0) {
-                const { data: activeSubs } = await supabase
+                const { data: activeSubs } = await supabaseAdmin
                   .from('subscriptions')
                   .select('id')
                   .in('creator_id', profileIds)
                   .eq('status', 'active')
                   .gt('end_date', thresholdDate.toISOString())
                   .neq('id', sub.id); // Exclude the current expired one
-                
+
                 if (activeSubs && activeSubs.length > 0) {
                   console.log(`[Server] Skipping auto-drafting for creator ${sub.creator_id} because another boutique has an active subscription`);
                   continue;
@@ -1212,13 +1369,13 @@ async function apply_subscription_expiry() {
             }
 
             console.log(`[Server] Subscription ${sub.id} is expired past grace. Setting status and drafting contents.`);
-            
-            await supabase
+
+            await supabaseAdmin
               .from('subscriptions')
               .update({ status: 'expired' })
               .eq('id', sub.id);
 
-            const { error: draftErr } = await supabase
+            const { error: draftErr } = await supabaseAdmin
               .from('contents')
               .update({
                 status: 'draft',
@@ -1256,6 +1413,131 @@ setInterval(apply_subscription_expiry, 60 * 60 * 1000);
 // Run a check shortly after startup
 setTimeout(apply_subscription_expiry, 10000);
 
+
+// ==========================================
+// RÉCONCILIATION DES PAIEMENTS EN ATTENTE
+// ==========================================
+
+/**
+ * Finalizes payments whose buyer never made it back to our confirmation page.
+ *
+ * Maketou has no webhook, so a cart's outcome is only known by asking for it. Until now
+ * that only happened if the buyer's browser reached /payment/confirm — if it didn't (closed
+ * tab, lost network, a return URL the provider mangled), the money was taken but the sale
+ * stayed `pending` forever and was invisible to the creator.
+ *
+ * This runs server-side on a schedule so the browser round-trip is no longer what makes a
+ * payment count. Only carts older than the grace delay are touched, to avoid racing the
+ * confirmation page over a payment that is still legitimately in progress.
+ */
+const RECONCILE_MIN_AGE_MS = 2 * 60 * 1000;
+const RECONCILE_BATCH_SIZE = 50;
+
+async function reconcilePendingPayments() {
+  if (!supabaseAdmin) return { purchases: 0, donations: 0 };
+
+  const olderThan = new Date(Date.now() - RECONCILE_MIN_AGE_MS).toISOString();
+  let purchasesFixed = 0;
+  let donationsFixed = 0;
+
+  try {
+    // `temp_ref_*` rows never reached Maketou (the cart creation itself failed), so there is
+    // no cart to ask about — skip them rather than burning rate-limited API calls.
+    const { data: pendingPurchases } = await supabaseAdmin
+      .from('purchases')
+      .select('*')
+      .eq('status', 'pending')
+      .lt('created_at', olderThan)
+      .not('payment_reference', 'like', 'temp_ref_%')
+      .limit(RECONCILE_BATCH_SIZE);
+
+    for (const row of pendingPurchases || []) {
+      const purchase = mapPurchaseRow(row);
+      if (!purchase.paymentReference) continue;
+
+      const outcome = await fetchCartStatus(purchase.paymentReference);
+      if (outcome === 'completed') {
+        await finalizePurchase(purchase, purchase.paymentReference);
+        purchasesFixed++;
+        console.log(`[Reconcile] Vente ${purchase.id} récupérée (paiement confirmé côté opérateur).`);
+      } else if (outcome === 'failed') {
+        await markPurchaseFailed(purchase, purchase.paymentReference);
+        console.log(`[Reconcile] Vente ${purchase.id} marquée comme échouée.`);
+      }
+      // `waiting_payment` or a failed lookup (null): leave pending and retry next run.
+    }
+
+    const { data: pendingDonations } = await supabaseAdmin
+      .from('donations')
+      .select('*')
+      .eq('status', 'pending')
+      .lt('created_at', olderThan)
+      .not('payment_reference', 'like', 'temp_ref_%')
+      .limit(RECONCILE_BATCH_SIZE);
+
+    for (const row of pendingDonations || []) {
+      const donation = {
+        id: row.id,
+        creatorId: row.creator_id,
+        donorName: row.donor_name || 'Un fan',
+        donorEmail: row.donor_email || undefined,
+        donorMessage: row.donor_message || undefined,
+        status: row.status as 'pending' | 'completed' | 'failed',
+        paymentReference: row.payment_reference || '',
+        amount: row.amount_fcfa || 0,
+        commissionAmount: row.commission_amount_fcfa || 0,
+        creatorNetAmount: row.creator_net_amount_fcfa || 0,
+        createdAt: row.created_at
+      };
+      if (!donation.paymentReference) continue;
+
+      const outcome = await fetchCartStatus(donation.paymentReference);
+      if (outcome === 'completed') {
+        await finalizeDonation(donation, donation.paymentReference);
+        donationsFixed++;
+        console.log(`[Reconcile] Don ${donation.id} récupéré (paiement confirmé côté opérateur).`);
+      } else if (outcome === 'failed') {
+        await markDonationFailed(donation, donation.paymentReference);
+      }
+    }
+
+    if (purchasesFixed > 0 || donationsFixed > 0) {
+      console.log(`[Reconcile] Terminé : ${purchasesFixed} vente(s) et ${donationsFixed} don(s) récupérés.`);
+    }
+  } catch (err) {
+    console.error('[Reconcile] Erreur pendant la réconciliation :', err);
+  }
+
+  return { purchases: purchasesFixed, donations: donationsFixed };
+}
+
+// Local/long-running process only. On serverless (Vercel) the process is torn down between
+// requests, so production relies on the /api/cron/reconcile endpoint below instead.
+setInterval(reconcilePendingPayments, 5 * 60 * 1000);
+setTimeout(reconcilePendingPayments, 20000);
+
+/**
+ * GET /api/cron/reconcile
+ * Scheduled entry point for production (Vercel Cron). Protected by CRON_SECRET when set.
+ */
+app.get('/api/cron/reconcile', async (req, res) => {
+  const expectedSecret = process.env.CRON_SECRET;
+  if (expectedSecret) {
+    const provided = req.headers.authorization?.replace(/^Bearer\s+/i, '') || req.query.secret;
+    if (provided !== expectedSecret) {
+      return res.status(401).json({ error: 'Non autorisé.' });
+    }
+  }
+
+  try {
+    const result = await reconcilePendingPayments();
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error('[Server] Cron reconcile error:', err);
+    return res.status(500).json({ error: err.message || 'Erreur pendant la réconciliation.' });
+  }
+});
+
 /**
  * POST /api/subscription/create-cart
  */
@@ -1285,7 +1567,8 @@ app.post('/api/subscription/create-cart', async (req, res) => {
 
     if (hasMaketou && productDocumentId) {
       const appUrl = getAppUrl();
-      const redirectURL = `${appUrl}/subscription/confirm?cartId={cartId}&creatorId=${creatorId}`;
+      // Same reasoning as the content-purchase cart: leave cartId out, Maketou appends its own.
+      const redirectURL = `${appUrl}/subscription/confirm?creatorId=${creatorId}`;
 
       const body = {
         productDocumentId,
@@ -1333,9 +1616,9 @@ app.post('/api/subscription/create-cart', async (req, res) => {
         type: 'subscription'
       });
 
-      if (supabase) {
+      if (supabaseAdmin) {
         try {
-          await supabase
+          await supabaseAdmin
             .from('transactions')
             .insert({
               provider: 'maketou',
@@ -1433,9 +1716,9 @@ app.get('/api/subscription/check-status', async (req, res) => {
 
       let restoredCount = 0;
 
-      if (supabase) {
+      if (supabaseAdmin) {
         try {
-          const { data: contentsToRestore } = await supabase
+          const { data: contentsToRestore } = await supabaseAdmin
             .from('contents')
             .select('id')
             .eq('creator_id', creatorId)
@@ -1444,7 +1727,7 @@ app.get('/api/subscription/check-status', async (req, res) => {
           restoredCount = contentsToRestore?.length || 0;
 
           // Restore contents
-          await supabase
+          await supabaseAdmin
             .from('contents')
             .update({
               status: 'published',
@@ -1455,7 +1738,7 @@ app.get('/api/subscription/check-status', async (req, res) => {
             .eq('auto_drafted_by_subscription', true);
 
           // Insert subscription
-          await supabase
+          await supabaseAdmin
             .from('subscriptions')
             .insert({
               creator_id: creatorId,
@@ -1468,7 +1751,7 @@ app.get('/api/subscription/check-status', async (req, res) => {
 
           // Create transaction record
           try {
-            await supabase
+            await supabaseAdmin
               .from('transactions')
               .insert({
                 provider: 'maketou',
@@ -1478,7 +1761,7 @@ app.get('/api/subscription/check-status', async (req, res) => {
               });
           } catch (txErr) {
             // Might exist, update instead
-            await supabase
+            await supabaseAdmin
               .from('transactions')
               .update({ status: 'success' })
               .eq('provider_transaction_id', cartId);
@@ -1504,9 +1787,9 @@ app.get('/api/subscription/check-status', async (req, res) => {
 
     } else if (statusToSet === 'failed') {
       serverDb.updateTransactionByCart(cartId as string, { status: 'failed' });
-      if (supabase) {
+      if (supabaseAdmin) {
         try {
-          await supabase
+          await supabaseAdmin
             .from('transactions')
             .update({ status: 'failed' })
             .eq('provider_transaction_id', cartId);
@@ -1718,12 +2001,8 @@ app.get('/api/portal/verify', async (req, res) => {
   }
 
   try {
-    const emailStr = (email as string).toLowerCase().trim();
-    const purchases = serverDb.getPurchases();
-    const exists = purchases.some(
-      p => p.buyerEmail.toLowerCase() === emailStr && p.status === 'completed'
-    );
-    return res.json({ exists });
+    const purchases = await getCompletedPurchasesByEmail(email as string);
+    return res.json({ exists: purchases.length > 0 });
   } catch (err: any) {
     console.error('[Server] Portal verify error:', err);
     return res.status(500).json({ error: 'Une erreur est survenue lors de la vérification de l\'email.' });
@@ -1741,17 +2020,7 @@ app.get('/api/portal/purchases', async (req, res) => {
   }
 
   try {
-    const emailStr = (email as string).toLowerCase().trim();
-    const purchases = serverDb.getPurchases().filter(
-      p => p.buyerEmail.toLowerCase() === emailStr && p.status === 'completed'
-    );
-
-    // Sort by purchasedAt / createdAt desc
-    purchases.sort((a, b) => {
-      const dateA = a.purchasedAt || a.createdAt;
-      const dateB = b.purchasedAt || b.createdAt;
-      return new Date(dateB).getTime() - new Date(dateA).getTime();
-    });
+    const purchases = await getCompletedPurchasesByEmail(email as string);
 
     if (purchases.length === 0) {
       return res.json([]);
@@ -3576,7 +3845,7 @@ app.post('/api/admin/creators/:id/seed-test-data', async (req, res) => {
     const fakePurchases = Array.from({ length: purchasesCount }).map(() => {
       const content = contents![Math.floor(Math.random() * contents!.length)];
       const amount = content.price_fcfa;
-      const commission = Math.round(amount * 0.18);
+      const commission = Math.round(amount * 0.10);
       return {
         buyer_phone: `+2289${Math.floor(1000000 + Math.random() * 8999999)}`,
         content_id: content.id,
@@ -3584,7 +3853,7 @@ app.post('/api/admin/creators/:id/seed-test-data', async (req, res) => {
         amount_paid_fcfa: amount,
         commission_amount_fcfa: commission,
         creator_net_amount_fcfa: amount - commission,
-        payment_reference: generateFakePaymentReference(creator.payout_provider),
+        payment_reference: generateFakePaymentReference(randomMomoProvider()),
         is_fake: true,
         created_at: randomGrowthDate(daysRange)
       };
@@ -3592,7 +3861,7 @@ app.post('/api/admin/creators/:id/seed-test-data', async (req, res) => {
 
     const fakeDonations = Array.from({ length: donationsCount }).map(() => {
       const amount = [1000, 1500, 2000, 2500, 3000, 5000][Math.floor(Math.random() * 6)];
-      const commission = Math.round(amount * 0.18);
+      const commission = Math.round(amount * 0.10);
       return {
         creator_id: id,
         donor_name: FAKE_DONOR_NAMES[Math.floor(Math.random() * FAKE_DONOR_NAMES.length)],
@@ -3602,7 +3871,7 @@ app.post('/api/admin/creators/:id/seed-test-data', async (req, res) => {
         amount_fcfa: amount,
         commission_amount_fcfa: commission,
         creator_net_amount_fcfa: amount - commission,
-        payment_reference: generateFakePaymentReference(creator.payout_provider),
+        payment_reference: generateFakePaymentReference(randomMomoProvider()),
         is_fake: true,
         created_at: randomGrowthDate(daysRange)
       };
@@ -3768,7 +4037,7 @@ app.post('/api/admin/creators/:id/fake-purchase', async (req, res) => {
     }
 
     const amount = content.price_fcfa;
-    const commission = Math.round(amount * 0.18);
+    const commission = Math.round(amount * 0.10);
 
     const { data: purchase, error: insertErr } = await supabaseAdmin
       .from('purchases')
@@ -3779,7 +4048,7 @@ app.post('/api/admin/creators/:id/fake-purchase', async (req, res) => {
         amount_paid_fcfa: amount,
         commission_amount_fcfa: commission,
         creator_net_amount_fcfa: amount - commission,
-        payment_reference: generateFakePaymentReference(creator.payout_provider),
+        payment_reference: generateFakePaymentReference(randomMomoProvider()),
         is_fake: true,
         created_at: new Date(createdAt).toISOString()
       })
@@ -3819,7 +4088,7 @@ app.post('/api/admin/creators/:id/fake-donation', async (req, res) => {
       return res.status(403).json({ error: "Ce créateur n'est pas un compte de test." });
     }
 
-    const commission = Math.round(amountNum * 0.18);
+    const commission = Math.round(amountNum * 0.10);
 
     const { data: donation, error: insertErr } = await supabaseAdmin
       .from('donations')
@@ -3832,7 +4101,7 @@ app.post('/api/admin/creators/:id/fake-donation', async (req, res) => {
         amount_fcfa: amountNum,
         commission_amount_fcfa: commission,
         creator_net_amount_fcfa: amountNum - commission,
-        payment_reference: generateFakePaymentReference(creator.payout_provider),
+        payment_reference: generateFakePaymentReference(randomMomoProvider()),
         is_fake: true,
         created_at: new Date(createdAt).toISOString()
       })

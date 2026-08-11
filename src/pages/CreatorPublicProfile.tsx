@@ -487,7 +487,7 @@ export default function CreatorPublicProfile() {
   // Submit Payment with Maketou Creation
   const handlePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!buyerEmail.trim() || !buyerFirstName.trim() || !buyerLastName.trim() || !selectedContent) return;
+    if (!buyerEmail.trim() || !buyerFirstName.trim() || !buyerLastName.trim() || !buyerPhone.trim() || !selectedContent) return;
 
     setPaymentStep('loading');
     setPaymentStatusMessage("Initialisation du paiement...");
@@ -505,7 +505,7 @@ export default function CreatorPublicProfile() {
           buyerEmail: buyerEmail.trim(),
           buyerFirstName: buyerFirstName.trim(),
           buyerLastName: buyerLastName.trim(),
-          buyerPhone: buyerPhone.trim() || undefined
+          buyerPhone: buyerPhone.trim()
         })
       });
 
@@ -1137,9 +1137,9 @@ export default function CreatorPublicProfile() {
                         </span>
                       </div>
 
-                      {/* Phone number field (Optional) */}
+                      {/* Phone number field */}
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 pl-0.5">Téléphone (facultatif)</label>
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 pl-0.5">Téléphone Mobile Money</label>
                         <div className="relative">
                           <Smartphone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
                           <input
@@ -1148,8 +1148,12 @@ export default function CreatorPublicProfile() {
                             onChange={(e) => setBuyerPhone(e.target.value)}
                             placeholder="+221 77 123 45 67"
                             className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-xs focus:outline-none focus:border-accent-corail focus:ring-1 focus:ring-accent-corail transition-all font-mono text-neutral-900"
+                            required
                           />
                         </div>
+                        <span className="text-[9px] text-gray-500 pl-0.5 leading-none">
+                          Le numéro utilisé pour payer via Mobile Money.
+                        </span>
                       </div>
 
                       {/* Error Panel */}
@@ -1163,7 +1167,7 @@ export default function CreatorPublicProfile() {
                       {/* Pay Button */}
                       <button
                         type="submit"
-                        disabled={isPaying || !buyerEmail.trim() || !buyerFirstName.trim() || !buyerLastName.trim()}
+                        disabled={isPaying || !buyerEmail.trim() || !buyerFirstName.trim() || !buyerLastName.trim() || !buyerPhone.trim()}
                         className="w-full py-3.5 rounded-xl text-xs font-semibold text-white bg-accent-corail hover:bg-accent-corail-hover transition-all duration-200 shadow-md cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isPaying ? (

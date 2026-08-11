@@ -425,5 +425,35 @@ ALTER TABLE public.donations ADD COLUMN IF NOT EXISTS is_fake BOOLEAN DEFAULT fa
 ALTER TABLE public.withdrawals ADD COLUMN IF NOT EXISTS is_fake BOOLEAN DEFAULT false NOT NULL;
 
 
+-- ==========================================
+-- IDENTITE DE L'ACHETEUR (migration paiements)
+-- ==========================================
+-- L'identite de l'acheteur n'etait stockee que dans la base fichier locale, qui ne persiste
+-- pas en production (disque en lecture seule + conteneur neuf a chaque requete). Sans ces
+-- colonnes, la confirmation de paiement et l'espace acheteur ne peuvent pas fonctionner en
+-- ligne. A executer une seule fois.
+ALTER TABLE public.purchases ADD COLUMN IF NOT EXISTS buyer_email      VARCHAR(120);
+ALTER TABLE public.purchases ADD COLUMN IF NOT EXISTS buyer_first_name VARCHAR(60);
+ALTER TABLE public.purchases ADD COLUMN IF NOT EXISTS buyer_last_name  VARCHAR(60);
+CREATE INDEX IF NOT EXISTS idx_purchases_buyer_email ON public.purchases(buyer_email);
+
+
+-- ==========================================
+-- CORRECTION DU TAUX DE COMMISSION (18% -> 10%)
+-- ==========================================
+-- Le serveur appliquait 18% alors que la landing page et les CGV annoncent 10%. Le code est
+-- corrige ; ces deux requetes rattrapent les lignes deja enregistrees. La clause WHERE ne
+-- cible que les lignes calculees a 18%, donc l'execution est sans risque si relancee.
+UPDATE public.purchases SET
+  commission_amount_fcfa  = ROUND(amount_paid_fcfa * 0.10),
+  creator_net_amount_fcfa = amount_paid_fcfa - ROUND(amount_paid_fcfa * 0.10)
+WHERE commission_amount_fcfa = ROUND(amount_paid_fcfa * 0.18);
+
+UPDATE public.donations SET
+  commission_amount_fcfa  = ROUND(amount_fcfa * 0.10),
+  creator_net_amount_fcfa = amount_fcfa - ROUND(amount_fcfa * 0.10)
+WHERE commission_amount_fcfa = ROUND(amount_fcfa * 0.18);
+
+
 
 

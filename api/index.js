@@ -1,6 +1,7 @@
 // server.ts
 import express from "express";
 import path2 from "path";
+import fs2 from "fs";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 
@@ -328,11 +329,13 @@ process.env.ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.VITE_ADMIN_EMAI
 process.env.VITE_ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.VITE_ADMIN_EMAIL || "bigardlamine@gmail.com";
 var app = express();
 var PORT = 3e3;
+var SUBSCRIPTION_PRICE_FCFA = 4990;
 app.use(express.json());
 var getAppUrl = () => {
   const isRealUrl = (v) => !!v && /^https?:\/\//.test(v);
   const configuredAppUrl = [process.env.NEXT_PUBLIC_APP_URL, process.env.APP_URL].find(isRealUrl);
-  const vercelAppUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : void 0;
+  const vercelHost = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+  const vercelAppUrl = vercelHost ? `https://${vercelHost}` : void 0;
   let url = (configuredAppUrl || vercelAppUrl || `http://localhost:${PORT}`).replace(/\/$/, "");
   if (url.includes("localhost")) {
     url = url.replace("localhost", "lvh.me");
@@ -352,10 +355,215 @@ var supabaseAdmin = isSupabaseConfigured && supabaseServiceRoleKey ? createClien
 }) : supabase;
 console.log(`[Server] Supabase configuration status: ${isSupabaseConfigured ? "CONNECTED" : "DEMO MODE"}`);
 console.log(`[Server] Supabase Admin status: ${supabaseAdmin !== supabase ? "SERVICE ROLE ENABLED" : "FALLBACK MODE"}`);
+var MISSING_COLUMN_ERROR = "PGRST204";
+function mapPurchaseRow(row) {
+  return {
+    id: row.id,
+    buyerPhone: row.buyer_phone || "",
+    buyerEmail: row.buyer_email || "",
+    buyerFirstName: row.buyer_first_name || "Un acheteur",
+    buyerLastName: row.buyer_last_name || "",
+    contentId: row.content_id,
+    status: row.status,
+    paymentReference: row.payment_reference || "",
+    amountPaid: row.amount_paid_fcfa || 0,
+    commissionAmount: row.commission_amount_fcfa || 0,
+    creatorNetAmount: row.creator_net_amount_fcfa || 0,
+    createdAt: row.created_at,
+    // Supabase has no separate "purchased at" column — created_at is the reference date there.
+    purchasedAt: void 0
+  };
+}
+async function getPurchaseById(purchaseId) {
+  if (supabaseAdmin) {
+    try {
+      const { data } = await supabaseAdmin.from("purchases").select("*").eq("id", purchaseId).maybeSingle();
+      if (data) return mapPurchaseRow(data);
+    } catch (err) {
+      console.warn("[Server] getPurchaseById: Supabase lookup failed, falling back to local db:", err);
+    }
+  }
+  return serverDb.getPurchase(purchaseId) || null;
+}
+async function getCompletedPurchasesByEmail(email) {
+  const emailStr = email.toLowerCase().trim();
+  if (supabaseAdmin) {
+    try {
+      const { data, error } = await supabaseAdmin.from("purchases").select("*").ilike("buyer_email", emailStr).eq("status", "completed").order("created_at", { ascending: false });
+      if (error) {
+        console.warn("[Server] getCompletedPurchasesByEmail: Supabase query failed, using local db:", error.message);
+      } else if (data && data.length > 0) {
+        return data.map(mapPurchaseRow);
+      }
+    } catch (err) {
+      console.warn("[Server] getCompletedPurchasesByEmail: Supabase lookup threw, using local db:", err);
+    }
+  }
+  return serverDb.getPurchases().filter((p) => p.buyerEmail.toLowerCase() === emailStr && p.status === "completed").sort(
+    (a, b) => new Date(b.purchasedAt || b.createdAt).getTime() - new Date(a.purchasedAt || a.createdAt).getTime()
+  );
+}
+function mapCartStatus(cartStatus) {
+  if (cartStatus === "completed" || cartStatus === "success") return "completed";
+  if (cartStatus === "payment_failed" || cartStatus === "failed" || cartStatus === "abandoned") return "failed";
+  return "waiting_payment";
+}
+async function fetchCartStatus(cartId) {
+  if (cartId.startsWith("mock_") || !process.env.MAKETOU_API_KEY) return "completed";
+  try {
+    const maketouRes = await fetch(`https://api.maketou.net/api/v1/stores/cart/${cartId}`, {
+      method: "GET",
+      headers: { "Authorization": `Bearer ${process.env.MAKETOU_API_KEY}` }
+    });
+    if (!maketouRes.ok) {
+      console.error(`[Server] Maketou status check failed for cart ${cartId}: ${maketouRes.status} ${maketouRes.statusText}`);
+      return null;
+    }
+    const cartData = await maketouRes.json();
+    return mapCartStatus(cartData.status || cartData.cart?.status);
+  } catch (err) {
+    console.error(`[Server] Maketou status check threw for cart ${cartId}:`, err);
+    return null;
+  }
+}
+async function finalizePurchase(purchase, cartId, knownContentTitle) {
+  const alreadyCompleted = purchase.status === "completed";
+  serverDb.updatePurchase(purchase.id, { status: "completed", purchasedAt: (/* @__PURE__ */ new Date()).toISOString() });
+  serverDb.updateTransactionByCart(cartId, { status: "success" });
+  let contentTitle = knownContentTitle || "Contenu exclusif";
+  let creatorUserId = null;
+  if (supabaseAdmin) {
+    try {
+      const { data: contentData } = await supabaseAdmin.from("contents").select("title, creator_profiles(id, user_id)").eq("id", purchase.contentId).maybeSingle();
+      if (contentData) {
+        if (!knownContentTitle && contentData.title) contentTitle = contentData.title;
+        const creatorProfile = contentData.creator_profiles;
+        creatorUserId = creatorProfile?.user_id || creatorProfile?.id || null;
+      }
+      await supabaseAdmin.from("purchases").update({ status: "completed" }).eq("id", purchase.id);
+      await supabaseAdmin.from("transactions").update({ status: "success" }).eq("provider_transaction_id", cartId);
+      if (creatorUserId && !alreadyCompleted) {
+        await supabaseAdmin.from("notifications").insert({
+          user_id: creatorUserId,
+          title: "Nouvelle vente !",
+          message: `L'acheteur ${purchase.buyerFirstName} a d\xE9bloqu\xE9 votre contenu "${contentTitle}" pour ${purchase.amountPaid} FCFA.`,
+          is_read: false
+        });
+      }
+    } catch (dbErr) {
+      console.error("[Server] finalizePurchase: Supabase write warning:", dbErr);
+    }
+  }
+  if (!alreadyCompleted) {
+    serverDb.addNotification({
+      userId: creatorUserId || "creator_1",
+      type: "new_sale",
+      title: "Nouvelle vente !",
+      message: `L'acheteur ${purchase.buyerFirstName} a d\xE9bloqu\xE9 votre contenu "${contentTitle}" pour ${purchase.amountPaid} FCFA.`
+    });
+  }
+  return { contentTitle, creatorUserId };
+}
+async function getDonationById(donationId) {
+  if (supabaseAdmin) {
+    try {
+      const { data } = await supabaseAdmin.from("donations").select("*").eq("id", donationId).maybeSingle();
+      if (data) {
+        return {
+          id: data.id,
+          creatorId: data.creator_id,
+          donorName: data.donor_name || "Un fan",
+          donorEmail: data.donor_email || void 0,
+          donorMessage: data.donor_message || void 0,
+          status: data.status,
+          paymentReference: data.payment_reference || "",
+          amount: data.amount_fcfa || 0,
+          commissionAmount: data.commission_amount_fcfa || 0,
+          creatorNetAmount: data.creator_net_amount_fcfa || 0,
+          createdAt: data.created_at
+        };
+      }
+    } catch (err) {
+      console.warn("[Server] getDonationById: Supabase lookup failed, falling back to local db:", err);
+    }
+  }
+  return serverDb.getDonation(donationId) || null;
+}
+async function finalizeDonation(donation, cartId) {
+  serverDb.updateDonation(donation.id, { status: "completed" });
+  serverDb.updateTransactionByCart(cartId, { status: "success" });
+  if (supabaseAdmin) {
+    try {
+      await supabaseAdmin.from("donations").update({ status: "completed" }).eq("id", donation.id);
+      await supabaseAdmin.from("transactions").update({ status: "success" }).eq("provider_transaction_id", cartId);
+    } catch (dbErr) {
+      console.error("[Server] finalizeDonation: Supabase write warning:", dbErr);
+    }
+  }
+}
+async function markDonationFailed(donation, cartId) {
+  serverDb.updateDonation(donation.id, { status: "failed" });
+  serverDb.updateTransactionByCart(cartId, { status: "failed" });
+  if (supabaseAdmin) {
+    try {
+      await supabaseAdmin.from("donations").update({ status: "failed" }).eq("id", donation.id);
+      await supabaseAdmin.from("transactions").update({ status: "failed" }).eq("provider_transaction_id", cartId);
+    } catch (dbErr) {
+      console.error("[Server] markDonationFailed: Supabase write warning:", dbErr);
+    }
+  }
+}
+async function markPurchaseFailed(purchase, cartId) {
+  serverDb.updatePurchase(purchase.id, { status: "failed" });
+  serverDb.updateTransactionByCart(cartId, { status: "failed" });
+  if (supabaseAdmin) {
+    try {
+      await supabaseAdmin.from("purchases").update({ status: "failed" }).eq("id", purchase.id);
+      await supabaseAdmin.from("transactions").update({ status: "failed" }).eq("provider_transaction_id", cartId);
+    } catch (dbErr) {
+      console.error("[Server] markPurchaseFailed: Supabase write warning:", dbErr);
+    }
+  }
+}
+async function getTestAccountIds() {
+  if (!supabaseAdmin) return { creatorIds: /* @__PURE__ */ new Set(), contentIds: /* @__PURE__ */ new Set() };
+  try {
+    const { data: testCreators } = await supabaseAdmin.from("creator_profiles").select("id").eq("is_test_account", true);
+    const creatorIds = new Set((testCreators || []).map((c) => c.id));
+    if (creatorIds.size === 0) return { creatorIds, contentIds: /* @__PURE__ */ new Set() };
+    const { data: testContents } = await supabaseAdmin.from("contents").select("id").in("creator_id", Array.from(creatorIds));
+    const contentIds = new Set((testContents || []).map((c) => c.id));
+    return { creatorIds, contentIds };
+  } catch (err) {
+    console.warn("[Server] Failed to resolve test account ids:", err);
+    return { creatorIds: /* @__PURE__ */ new Set(), contentIds: /* @__PURE__ */ new Set() };
+  }
+}
+function generateFakePaymentReference(provider) {
+  const prefixes = { wave: "WAVE", orange: "OM", mtn: "MTN", moov: "MOOV" };
+  const prefix = prefixes[(provider || "wave").toLowerCase()] || "WAVE";
+  const num = Math.floor(1e5 + Math.random() * 899999);
+  return `${prefix}-${num}-MOMO`;
+}
+var MOMO_PROVIDERS = ["wave", "orange", "mtn", "moov"];
+function randomMomoProvider() {
+  return MOMO_PROVIDERS[Math.floor(Math.random() * MOMO_PROVIDERS.length)];
+}
+function randomGrowthDate(maxDaysAgo) {
+  let daysAgo = maxDaysAgo * Math.pow(Math.random(), 2);
+  const candidate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1e3);
+  const isWeekend = candidate.getDay() === 0 || candidate.getDay() === 6;
+  if (!isWeekend && Math.random() < 0.3) {
+    daysAgo = Math.max(0, daysAgo - Math.random() * 2);
+  }
+  const finalDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1e3);
+  finalDate.setHours(8 + Math.floor(Math.random() * 15), Math.floor(Math.random() * 60), Math.floor(Math.random() * 60));
+  return finalDate.toISOString();
+}
 app.post("/api/payment/create-cart", async (req, res) => {
   const { contentId, buyerEmail, buyerFirstName, buyerLastName, buyerPhone } = req.body;
-  if (!contentId || !buyerEmail || !buyerFirstName || !buyerLastName) {
-    return res.status(400).json({ error: "Champs obligatoires manquants (contentId, buyerEmail, buyerFirstName, buyerLastName)." });
+  if (!contentId || !buyerEmail || !buyerFirstName || !buyerLastName || !buyerPhone) {
+    return res.status(400).json({ error: "Champs obligatoires manquants (contentId, buyerEmail, buyerFirstName, buyerLastName, buyerPhone)." });
   }
   try {
     let content = null;
@@ -413,12 +621,12 @@ app.post("/api/payment/create-cart", async (req, res) => {
     if (hasBought) {
       return res.status(400).json({ error: "Vous avez d\xE9j\xE0 achet\xE9 ce contenu." });
     }
-    const commission_amount = Math.round(price_amount * 0.18);
+    const commission_amount = Math.round(price_amount * 0.1);
     const creator_net_amount = price_amount - commission_amount;
     let purchaseId = `purchase_${Math.random().toString(36).substring(2, 11)}`;
-    if (supabase) {
+    if (supabaseAdmin) {
       try {
-        const { data: pbData, error: pbErr } = await supabase.from("purchases").insert({
+        const purchaseRow = {
           buyer_phone: buyerPhone || "Non fourni",
           content_id: contentId,
           status: "pending",
@@ -426,7 +634,17 @@ app.post("/api/payment/create-cart", async (req, res) => {
           commission_amount_fcfa: commission_amount,
           creator_net_amount_fcfa: creator_net_amount,
           payment_reference: "temp_ref_" + Date.now()
+        };
+        let { data: pbData, error: pbErr } = await supabaseAdmin.from("purchases").insert({
+          ...purchaseRow,
+          buyer_email: buyerEmail,
+          buyer_first_name: buyerFirstName,
+          buyer_last_name: buyerLastName
         }).select().single();
+        if (pbErr && pbErr.code === MISSING_COLUMN_ERROR) {
+          console.warn("[Server] Colonnes acheteur absentes (migration SQL non appliqu\xE9e) \u2014 insertion sans identit\xE9 acheteur.");
+          ({ data: pbData, error: pbErr } = await supabaseAdmin.from("purchases").insert(purchaseRow).select().single());
+        }
         if (!pbErr && pbData) {
           purchaseId = pbData.id;
         } else {
@@ -453,7 +671,7 @@ app.post("/api/payment/create-cart", async (req, res) => {
     const isMaketouConfigured = process.env.MAKETOU_API_KEY && process.env.MAKETOU_PRODUCT_ID;
     if (isMaketouConfigured) {
       const appUrl = getAppUrl();
-      const redirectURL = `${appUrl}/payment/confirm?cartId={cartId}&purchaseId=${purchaseId}`;
+      const redirectURL = `${appUrl}/payment/confirm?purchaseId=${purchaseId}`;
       const normalizedPhone = (buyerPhone || "").replace(/[^\d+]/g, "");
       const isValidE164Phone = /^\+\d{8,15}$/.test(normalizedPhone);
       const requestBody = {
@@ -496,15 +714,15 @@ app.post("/api/payment/create-cart", async (req, res) => {
         status: "pending",
         type: "purchase"
       });
-      if (supabase) {
+      if (supabaseAdmin) {
         try {
-          await supabase.from("transactions").insert({
+          await supabaseAdmin.from("transactions").insert({
             provider: "maketou",
             provider_transaction_id: cartId,
             status: "pending",
             type: "purchase"
           }).select().maybeSingle();
-          await supabase.from("purchases").update({ payment_reference: cartId }).eq("id", purchaseId);
+          await supabaseAdmin.from("purchases").update({ payment_reference: cartId }).eq("id", purchaseId);
         } catch (dbErr) {
           console.warn("[Server] Supabase transaction update skipped or failed:", dbErr);
         }
@@ -535,7 +753,7 @@ app.get("/api/payment/check-status", async (req, res) => {
     return res.status(400).json({ error: "Param\xE8tres cartId et purchaseId requis." });
   }
   try {
-    const purchase = serverDb.getPurchase(purchaseId);
+    const purchase = await getPurchaseById(purchaseId);
     if (!purchase) {
       return res.status(404).json({ error: "Achat non trouv\xE9." });
     }
@@ -567,81 +785,24 @@ app.get("/api/payment/check-status", async (req, res) => {
         contentTitle = "Votre contenu exclusif";
       }
     }
-    let statusToSet = "waiting_payment";
-    const isMock = cartId.startsWith("mock_") || !process.env.MAKETOU_API_KEY;
-    if (isMock) {
-      statusToSet = "completed";
-    } else {
-      console.log(`[Server] Polling Maketou status for cart ${cartId}`);
-      const maketouRes = await fetch(`https://api.maketou.net/api/v1/stores/cart/${cartId}`, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${process.env.MAKETOU_API_KEY}`
-        }
-      });
-      if (!maketouRes.ok) {
-        console.error("[Server] Maketou status check error:", maketouRes.statusText);
-        return res.status(500).json({ error: "Impossible de v\xE9rifier le statut aupr\xE8s de Maketou." });
-      }
-      const cartData = await maketouRes.json();
-      console.log("[Server] Maketou Cart status details:", cartData);
-      const cartStatus = cartData.status || cartData.cart?.status;
-      if (cartStatus === "completed" || cartStatus === "success") {
-        statusToSet = "completed";
-      } else if (cartStatus === "payment_failed" || cartStatus === "failed" || cartStatus === "abandoned") {
-        statusToSet = "failed";
-      } else {
-        statusToSet = "waiting_payment";
-      }
+    console.log(`[Server] Polling Maketou status for cart ${cartId}`);
+    const cartStatus = await fetchCartStatus(cartId);
+    if (cartStatus === null) {
+      return res.status(500).json({ error: "Impossible de v\xE9rifier le statut aupr\xE8s de Maketou." });
     }
+    const statusToSet = cartStatus;
     if (statusToSet === "completed") {
-      serverDb.updatePurchase(purchase.id, { status: "completed", purchasedAt: (/* @__PURE__ */ new Date()).toISOString() });
-      serverDb.updateTransactionByCart(cartId, { status: "success" });
-      let creatorUserId = null;
-      if (supabase) {
-        try {
-          const { data: contentData } = await supabase.from("contents").select("*, creator_profiles(*)").eq("id", purchase.contentId).maybeSingle();
-          if (contentData) {
-            creatorUserId = contentData.creator_profiles?.user_id || contentData.creator_profiles?.id;
-          }
-          await supabase.from("purchases").update({ status: "completed" }).eq("id", purchase.id);
-          try {
-            await supabase.from("transactions").update({ status: "success" }).eq("provider_transaction_id", cartId);
-          } catch (e) {
-          }
-          if (creatorUserId) {
-            await supabase.from("notifications").insert({
-              user_id: creatorUserId,
-              title: "Nouvelle vente !",
-              message: `L'acheteur ${purchase.buyerFirstName} a d\xE9bloqu\xE9 votre contenu "${contentTitle}" pour ${purchase.amountPaid} FCFA.`,
-              is_read: false
-            });
-          }
-        } catch (dbErr) {
-          console.error("[Server] Supabase completed status write warning:", dbErr);
-        }
-      }
-      serverDb.addNotification({
-        userId: creatorUserId || "creator_1",
-        type: "new_sale",
-        title: "Nouvelle vente !",
-        message: `L'acheteur ${purchase.buyerFirstName} a d\xE9bloqu\xE9 votre contenu "${contentTitle}" pour ${purchase.amountPaid} FCFA.`
+      const finalized = await finalizePurchase(purchase, cartId, contentTitle);
+      return res.json({
+        status: "completed",
+        contentId: purchase.contentId,
+        contentTitle: finalized.contentTitle,
+        creatorUsername,
+        buyerEmail: purchase.buyerEmail,
+        buyerPhone: purchase.buyerPhone
       });
-      return res.json({ status: "completed", contentId: purchase.contentId, contentTitle, creatorUsername });
     } else if (statusToSet === "failed") {
-      serverDb.updatePurchase(purchase.id, { status: "failed" });
-      serverDb.updateTransactionByCart(cartId, { status: "failed" });
-      if (supabase) {
-        try {
-          await supabase.from("purchases").update({ status: "failed" }).eq("id", purchase.id);
-          try {
-            await supabase.from("transactions").update({ status: "failed" }).eq("provider_transaction_id", cartId);
-          } catch (e) {
-          }
-        } catch (dbErr) {
-          console.error("[Server] Supabase failed status write warning:", dbErr);
-        }
-      }
+      await markPurchaseFailed(purchase, cartId);
       return res.json({ status: "failed", contentId: purchase.contentId, contentTitle, creatorUsername });
     } else {
       return res.json({ status: "waiting_payment", contentId: purchase.contentId, contentTitle, creatorUsername });
@@ -676,12 +837,12 @@ app.post("/api/payment/create-donation-cart", async (req, res) => {
     if (!creator) {
       return res.status(404).json({ error: "Cr\xE9ateur non trouv\xE9." });
     }
-    const commission_amount = Math.round(donationAmount * 0.18);
+    const commission_amount = Math.round(donationAmount * 0.1);
     const creator_net_amount = donationAmount - commission_amount;
     let donationId = `donation_${Math.random().toString(36).substring(2, 11)}`;
-    if (supabase) {
+    if (supabaseAdmin) {
       try {
-        const { data: donData, error: donErr } = await supabase.from("donations").insert({
+        const { data: donData, error: donErr } = await supabaseAdmin.from("donations").insert({
           creator_id: creatorId,
           donor_name: donorName,
           donor_email: donorEmail || null,
@@ -716,7 +877,7 @@ app.post("/api/payment/create-donation-cart", async (req, res) => {
     const isMaketouConfigured = process.env.MAKETOU_API_KEY && process.env.MAKETOU_PRODUCT_ID;
     if (isMaketouConfigured) {
       const appUrl = getAppUrl();
-      const redirectURL = `${appUrl}/payment/confirm?cartId={cartId}&purchaseId=${donationId}&kind=donation`;
+      const redirectURL = `${appUrl}/payment/confirm?purchaseId=${donationId}&kind=donation`;
       const [donorFirstName, ...rest] = donorName.trim().split(" ");
       const donorLastName = rest.join(" ") || donorFirstName;
       const requestBody = {
@@ -751,9 +912,9 @@ app.post("/api/payment/create-donation-cart", async (req, res) => {
       }
       serverDb.updateDonation(donationId, { paymentReference: cartId });
       serverDb.addTransaction({ provider: "maketou", providerTransactionId: cartId, status: "pending", type: "purchase" });
-      if (supabase) {
+      if (supabaseAdmin) {
         try {
-          await supabase.from("donations").update({ payment_reference: cartId }).eq("id", donationId);
+          await supabaseAdmin.from("donations").update({ payment_reference: cartId }).eq("id", donationId);
         } catch (dbErr) {
           console.warn("[Server] Supabase donation reference update skipped:", dbErr);
         }
@@ -779,7 +940,7 @@ app.get("/api/payment/check-donation-status", async (req, res) => {
     return res.status(400).json({ error: "Param\xE8tres cartId et purchaseId requis." });
   }
   try {
-    const donation = serverDb.getDonation(purchaseId);
+    const donation = await getDonationById(purchaseId);
     if (!donation) {
       return res.status(404).json({ error: "Don non trouv\xE9." });
     }
@@ -792,54 +953,15 @@ app.get("/api/payment/check-donation-status", async (req, res) => {
         console.warn("[Server] Error fetching creator username inside check-donation-status:", err);
       }
     }
-    let statusToSet = "waiting_payment";
-    const isMock = cartId.startsWith("mock_") || !process.env.MAKETOU_API_KEY;
-    if (isMock) {
-      statusToSet = "completed";
-    } else {
-      const maketouRes = await fetch(`https://api.maketou.net/api/v1/stores/cart/${cartId}`, {
-        method: "GET",
-        headers: { "Authorization": `Bearer ${process.env.MAKETOU_API_KEY}` }
-      });
-      if (!maketouRes.ok) {
-        console.error("[Server] Maketou donation status check error:", maketouRes.statusText);
-        return res.status(500).json({ error: "Impossible de v\xE9rifier le statut aupr\xE8s de Maketou." });
-      }
-      const cartData = await maketouRes.json();
-      const cartStatus = cartData.status || cartData.cart?.status;
-      if (cartStatus === "completed" || cartStatus === "success") {
-        statusToSet = "completed";
-      } else if (cartStatus === "payment_failed" || cartStatus === "failed" || cartStatus === "abandoned") {
-        statusToSet = "failed";
-      } else {
-        statusToSet = "waiting_payment";
-      }
+    const statusToSet = await fetchCartStatus(cartId);
+    if (statusToSet === null) {
+      return res.status(500).json({ error: "Impossible de v\xE9rifier le statut aupr\xE8s de Maketou." });
     }
     if (statusToSet === "completed") {
-      serverDb.updateDonation(donation.id, { status: "completed" });
-      serverDb.updateTransactionByCart(cartId, { status: "success" });
-      if (supabase) {
-        try {
-          await supabase.from("donations").update({ status: "completed" }).eq("id", donation.id);
-          try {
-            await supabase.from("transactions").update({ status: "success" }).eq("provider_transaction_id", cartId);
-          } catch (e) {
-          }
-        } catch (dbErr) {
-          console.error("[Server] Supabase donation completed write warning:", dbErr);
-        }
-      }
+      await finalizeDonation(donation, cartId);
       return res.json({ status: "completed", creatorUsername, amount: donation.amount });
     } else if (statusToSet === "failed") {
-      serverDb.updateDonation(donation.id, { status: "failed" });
-      serverDb.updateTransactionByCart(cartId, { status: "failed" });
-      if (supabase) {
-        try {
-          await supabase.from("donations").update({ status: "failed" }).eq("id", donation.id);
-        } catch (dbErr) {
-          console.error("[Server] Supabase donation failed write warning:", dbErr);
-        }
-      }
+      await markDonationFailed(donation, cartId);
       return res.json({ status: "failed", creatorUsername });
     } else {
       return res.json({ status: "waiting_payment", creatorUsername });
@@ -947,10 +1069,7 @@ app.get("/api/payment/access-list", async (req, res) => {
     return res.status(400).json({ error: "Email requis." });
   }
   try {
-    const purchases = serverDb.getPurchases();
-    const activePurchases = purchases.filter(
-      (p) => p.buyerEmail.toLowerCase() === email.toLowerCase() && p.status === "completed"
-    );
+    const activePurchases = await getCompletedPurchasesByEmail(email);
     const contentIds = activePurchases.map((p) => p.contentId);
     return res.json({ contentIds });
   } catch (err) {
@@ -963,10 +1082,8 @@ app.get("/api/payment/access", async (req, res) => {
     return res.status(400).json({ error: "Champs contentId et email requis." });
   }
   try {
-    const purchases = serverDb.getPurchases();
-    const hasAccess = purchases.some(
-      (p) => p.contentId === contentId && p.buyerEmail.toLowerCase() === email.toLowerCase() && p.status === "completed"
-    );
+    const purchases = await getCompletedPurchasesByEmail(email);
+    const hasAccess = purchases.some((p) => p.contentId === contentId);
     if (!hasAccess) {
       return res.json({ hasAccess: false });
     }
@@ -1016,22 +1133,22 @@ app.get("/api/payment/access", async (req, res) => {
 });
 async function isCreatorSubscribedServer(creatorId) {
   const graceLimit = new Date(Date.now() - 3 * 24 * 60 * 60 * 1e3);
-  if (supabase) {
+  if (supabaseAdmin) {
     try {
-      const { data: currentCreator } = await supabase.from("creator_profiles").select("user_id").eq("id", creatorId).maybeSingle();
+      const { data: currentCreator } = await supabaseAdmin.from("creator_profiles").select("user_id").eq("id", creatorId).maybeSingle();
       if (currentCreator?.user_id) {
         const userId = currentCreator.user_id;
-        const { data: premiumProfiles } = await supabase.from("creator_profiles").select("is_premium, premium_expires_at").eq("user_id", userId).eq("is_premium", true);
+        const { data: premiumProfiles } = await supabaseAdmin.from("creator_profiles").select("is_premium, premium_expires_at").eq("user_id", userId).eq("is_premium", true);
         const hasPremiumProfile = (premiumProfiles || []).some(
           (cp) => !cp.premium_expires_at || new Date(cp.premium_expires_at).getTime() > graceLimit.getTime()
         );
         if (hasPremiumProfile) {
           return true;
         }
-        const { data: userProfiles } = await supabase.from("creator_profiles").select("id").eq("user_id", userId);
+        const { data: userProfiles } = await supabaseAdmin.from("creator_profiles").select("id").eq("user_id", userId);
         const profileIds = (userProfiles || []).map((p) => p.id);
         if (profileIds.length > 0) {
-          const { data: subs, error } = await supabase.from("subscriptions").select("end_date").in("creator_id", profileIds).eq("status", "active").gt("end_date", graceLimit.toISOString());
+          const { data: subs, error } = await supabaseAdmin.from("subscriptions").select("end_date").in("creator_id", profileIds).eq("status", "active").gt("end_date", graceLimit.toISOString());
           if (!error && subs && subs.length > 0) {
             return true;
           }
@@ -1060,14 +1177,14 @@ async function apply_subscription_expiry() {
   const now = /* @__PURE__ */ new Date();
   const thresholdDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1e3);
   try {
-    if (supabase) {
+    if (supabaseAdmin) {
       try {
-        const { data: expiredSubs, error: subErr } = await supabase.from("subscriptions").select("id, creator_id, end_date").eq("status", "active").lt("end_date", thresholdDate.toISOString());
+        const { data: expiredSubs, error: subErr } = await supabaseAdmin.from("subscriptions").select("id, creator_id, end_date").eq("status", "active").lt("end_date", thresholdDate.toISOString());
         if (!subErr && expiredSubs && expiredSubs.length > 0) {
           for (const sub of expiredSubs) {
-            const { data: creatorProfile } = await supabase.from("creator_profiles").select("user_id, is_premium, premium_expires_at").eq("id", sub.creator_id).maybeSingle();
+            const { data: creatorProfile } = await supabaseAdmin.from("creator_profiles").select("user_id, is_premium, premium_expires_at").eq("id", sub.creator_id).maybeSingle();
             if (creatorProfile) {
-              const { data: userProfiles } = await supabase.from("creator_profiles").select("id, is_premium, premium_expires_at").eq("user_id", creatorProfile.user_id);
+              const { data: userProfiles } = await supabaseAdmin.from("creator_profiles").select("id, is_premium, premium_expires_at").eq("user_id", creatorProfile.user_id);
               const hasPremium = (userProfiles || []).some(
                 (cp) => cp.is_premium && (!cp.premium_expires_at || new Date(cp.premium_expires_at).getTime() > Date.now())
               );
@@ -1077,7 +1194,7 @@ async function apply_subscription_expiry() {
               }
               const profileIds = (userProfiles || []).map((p) => p.id);
               if (profileIds.length > 0) {
-                const { data: activeSubs } = await supabase.from("subscriptions").select("id").in("creator_id", profileIds).eq("status", "active").gt("end_date", thresholdDate.toISOString()).neq("id", sub.id);
+                const { data: activeSubs } = await supabaseAdmin.from("subscriptions").select("id").in("creator_id", profileIds).eq("status", "active").gt("end_date", thresholdDate.toISOString()).neq("id", sub.id);
                 if (activeSubs && activeSubs.length > 0) {
                   console.log(`[Server] Skipping auto-drafting for creator ${sub.creator_id} because another boutique has an active subscription`);
                   continue;
@@ -1085,8 +1202,8 @@ async function apply_subscription_expiry() {
               }
             }
             console.log(`[Server] Subscription ${sub.id} is expired past grace. Setting status and drafting contents.`);
-            await supabase.from("subscriptions").update({ status: "expired" }).eq("id", sub.id);
-            const { error: draftErr } = await supabase.from("contents").update({
+            await supabaseAdmin.from("subscriptions").update({ status: "expired" }).eq("id", sub.id);
+            const { error: draftErr } = await supabaseAdmin.from("contents").update({
               status: "draft",
               is_published: false,
               auto_drafted_by_subscription: true
@@ -1112,13 +1229,86 @@ async function apply_subscription_expiry() {
 }
 setInterval(apply_subscription_expiry, 60 * 60 * 1e3);
 setTimeout(apply_subscription_expiry, 1e4);
+var RECONCILE_MIN_AGE_MS = 2 * 60 * 1e3;
+var RECONCILE_BATCH_SIZE = 50;
+async function reconcilePendingPayments() {
+  if (!supabaseAdmin) return { purchases: 0, donations: 0 };
+  const olderThan = new Date(Date.now() - RECONCILE_MIN_AGE_MS).toISOString();
+  let purchasesFixed = 0;
+  let donationsFixed = 0;
+  try {
+    const { data: pendingPurchases } = await supabaseAdmin.from("purchases").select("*").eq("status", "pending").lt("created_at", olderThan).not("payment_reference", "like", "temp_ref_%").limit(RECONCILE_BATCH_SIZE);
+    for (const row of pendingPurchases || []) {
+      const purchase = mapPurchaseRow(row);
+      if (!purchase.paymentReference) continue;
+      const outcome = await fetchCartStatus(purchase.paymentReference);
+      if (outcome === "completed") {
+        await finalizePurchase(purchase, purchase.paymentReference);
+        purchasesFixed++;
+        console.log(`[Reconcile] Vente ${purchase.id} r\xE9cup\xE9r\xE9e (paiement confirm\xE9 c\xF4t\xE9 op\xE9rateur).`);
+      } else if (outcome === "failed") {
+        await markPurchaseFailed(purchase, purchase.paymentReference);
+        console.log(`[Reconcile] Vente ${purchase.id} marqu\xE9e comme \xE9chou\xE9e.`);
+      }
+    }
+    const { data: pendingDonations } = await supabaseAdmin.from("donations").select("*").eq("status", "pending").lt("created_at", olderThan).not("payment_reference", "like", "temp_ref_%").limit(RECONCILE_BATCH_SIZE);
+    for (const row of pendingDonations || []) {
+      const donation = {
+        id: row.id,
+        creatorId: row.creator_id,
+        donorName: row.donor_name || "Un fan",
+        donorEmail: row.donor_email || void 0,
+        donorMessage: row.donor_message || void 0,
+        status: row.status,
+        paymentReference: row.payment_reference || "",
+        amount: row.amount_fcfa || 0,
+        commissionAmount: row.commission_amount_fcfa || 0,
+        creatorNetAmount: row.creator_net_amount_fcfa || 0,
+        createdAt: row.created_at
+      };
+      if (!donation.paymentReference) continue;
+      const outcome = await fetchCartStatus(donation.paymentReference);
+      if (outcome === "completed") {
+        await finalizeDonation(donation, donation.paymentReference);
+        donationsFixed++;
+        console.log(`[Reconcile] Don ${donation.id} r\xE9cup\xE9r\xE9 (paiement confirm\xE9 c\xF4t\xE9 op\xE9rateur).`);
+      } else if (outcome === "failed") {
+        await markDonationFailed(donation, donation.paymentReference);
+      }
+    }
+    if (purchasesFixed > 0 || donationsFixed > 0) {
+      console.log(`[Reconcile] Termin\xE9 : ${purchasesFixed} vente(s) et ${donationsFixed} don(s) r\xE9cup\xE9r\xE9s.`);
+    }
+  } catch (err) {
+    console.error("[Reconcile] Erreur pendant la r\xE9conciliation :", err);
+  }
+  return { purchases: purchasesFixed, donations: donationsFixed };
+}
+setInterval(reconcilePendingPayments, 5 * 60 * 1e3);
+setTimeout(reconcilePendingPayments, 2e4);
+app.get("/api/cron/reconcile", async (req, res) => {
+  const expectedSecret = process.env.CRON_SECRET;
+  if (expectedSecret) {
+    const provided = req.headers.authorization?.replace(/^Bearer\s+/i, "") || req.query.secret;
+    if (provided !== expectedSecret) {
+      return res.status(401).json({ error: "Non autoris\xE9." });
+    }
+  }
+  try {
+    const result = await reconcilePendingPayments();
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    console.error("[Server] Cron reconcile error:", err);
+    return res.status(500).json({ error: err.message || "Erreur pendant la r\xE9conciliation." });
+  }
+});
 app.post("/api/subscription/create-cart", async (req, res) => {
   const { creatorId, buyerEmail, buyerFirstName, buyerLastName, buyerPhone } = req.body;
   if (!creatorId) {
     return res.status(400).json({ error: "creatorId est requis." });
   }
   try {
-    const amount = 5e3;
+    const amount = SUBSCRIPTION_PRICE_FCFA;
     const productDocumentId = process.env.MAKETOU_PRODUCT_ID || "";
     const firstName = buyerFirstName || "Abonn\xE9";
     const lastName = buyerLastName || "Cr\xE9ateur";
@@ -1132,7 +1322,7 @@ app.post("/api/subscription/create-cart", async (req, res) => {
     }
     if (hasMaketou && productDocumentId) {
       const appUrl = getAppUrl();
-      const redirectURL = `${appUrl}/subscription/confirm?cartId={cartId}&creatorId=${creatorId}`;
+      const redirectURL = `${appUrl}/subscription/confirm?creatorId=${creatorId}`;
       const body = {
         productDocumentId,
         email,
@@ -1173,9 +1363,9 @@ app.post("/api/subscription/create-cart", async (req, res) => {
         status: "pending",
         type: "subscription"
       });
-      if (supabase) {
+      if (supabaseAdmin) {
         try {
-          await supabase.from("transactions").insert({
+          await supabaseAdmin.from("transactions").insert({
             provider: "maketou",
             provider_transaction_id: cartId,
             status: "pending",
@@ -1243,39 +1433,39 @@ app.get("/api/subscription/check-status", async (req, res) => {
       endDate.setDate(startDate.getDate() + 30);
       serverDb.addSubscription({
         creatorId,
-        amountPaid: 5e3,
+        amountPaid: SUBSCRIPTION_PRICE_FCFA,
         currency: "XOF",
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
         status: "active"
       });
       let restoredCount = 0;
-      if (supabase) {
+      if (supabaseAdmin) {
         try {
-          const { data: contentsToRestore } = await supabase.from("contents").select("id").eq("creator_id", creatorId).eq("auto_drafted_by_subscription", true);
+          const { data: contentsToRestore } = await supabaseAdmin.from("contents").select("id").eq("creator_id", creatorId).eq("auto_drafted_by_subscription", true);
           restoredCount = contentsToRestore?.length || 0;
-          await supabase.from("contents").update({
+          await supabaseAdmin.from("contents").update({
             status: "published",
             is_published: true,
             auto_drafted_by_subscription: false
           }).eq("creator_id", creatorId).eq("auto_drafted_by_subscription", true);
-          await supabase.from("subscriptions").insert({
+          await supabaseAdmin.from("subscriptions").insert({
             creator_id: creatorId,
-            amount_paid: 5e3,
+            amount_paid: SUBSCRIPTION_PRICE_FCFA,
             currency: "XOF",
             start_date: startDate.toISOString(),
             end_date: endDate.toISOString(),
             status: "active"
           });
           try {
-            await supabase.from("transactions").insert({
+            await supabaseAdmin.from("transactions").insert({
               provider: "maketou",
               provider_transaction_id: cartId,
               status: "success",
               type: "subscription"
             });
           } catch (txErr) {
-            await supabase.from("transactions").update({ status: "success" }).eq("provider_transaction_id", cartId);
+            await supabaseAdmin.from("transactions").update({ status: "success" }).eq("provider_transaction_id", cartId);
           }
         } catch (dbErr) {
           console.error("[Server] Supabase subscription completed warning:", dbErr);
@@ -1294,9 +1484,9 @@ app.get("/api/subscription/check-status", async (req, res) => {
       });
     } else if (statusToSet === "failed") {
       serverDb.updateTransactionByCart(cartId, { status: "failed" });
-      if (supabase) {
+      if (supabaseAdmin) {
         try {
-          await supabase.from("transactions").update({ status: "failed" }).eq("provider_transaction_id", cartId);
+          await supabaseAdmin.from("transactions").update({ status: "failed" }).eq("provider_transaction_id", cartId);
         } catch (e) {
         }
       }
@@ -1389,7 +1579,7 @@ app.get("/api/subscription/status", async (req, res) => {
       activeSub = {
         id: "sub_profile_premium",
         creator_id: creatorId,
-        amount_paid: 5e3,
+        amount_paid: SUBSCRIPTION_PRICE_FCFA,
         currency: "XOF",
         start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3).toISOString(),
         end_date: premiumExpiresAt || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3).toISOString(),
@@ -1442,12 +1632,8 @@ app.get("/api/portal/verify", async (req, res) => {
     return res.status(400).json({ error: "Email requis." });
   }
   try {
-    const emailStr = email.toLowerCase().trim();
-    const purchases = serverDb.getPurchases();
-    const exists = purchases.some(
-      (p) => p.buyerEmail.toLowerCase() === emailStr && p.status === "completed"
-    );
-    return res.json({ exists });
+    const purchases = await getCompletedPurchasesByEmail(email);
+    return res.json({ exists: purchases.length > 0 });
   } catch (err) {
     console.error("[Server] Portal verify error:", err);
     return res.status(500).json({ error: "Une erreur est survenue lors de la v\xE9rification de l'email." });
@@ -1459,15 +1645,7 @@ app.get("/api/portal/purchases", async (req, res) => {
     return res.status(400).json({ error: "Email requis." });
   }
   try {
-    const emailStr = email.toLowerCase().trim();
-    const purchases = serverDb.getPurchases().filter(
-      (p) => p.buyerEmail.toLowerCase() === emailStr && p.status === "completed"
-    );
-    purchases.sort((a, b) => {
-      const dateA = a.purchasedAt || a.createdAt;
-      const dateB = b.purchasedAt || b.createdAt;
-      return new Date(dateB).getTime() - new Date(dateA).getTime();
-    });
+    const purchases = await getCompletedPurchasesByEmail(email);
     if (purchases.length === 0) {
       return res.json([]);
     }
@@ -1711,15 +1889,15 @@ app.get("/api/admin/kpis", async (req, res) => {
     let topShopsForMultiShopUsers = [];
     if (supabaseAdmin) {
       try {
+        const { contentIds: testContentIds } = await getTestAccountIds();
         const { count: activeCreators, error: err1 } = await supabaseAdmin.from("creator_profiles").select("*", { count: "exact", head: true }).eq("status", "active");
         if (err1) throw err1;
         activeCreatorsCount = activeCreators || 0;
-        const { data: monthPurchases, error: err2 } = await supabaseAdmin.from("purchases").select("commission_amount_fcfa, amount_paid_fcfa").eq("status", "completed").gte("created_at", startOfMonthStr);
+        const { data: monthPurchases, error: err2 } = await supabaseAdmin.from("purchases").select("commission_amount_fcfa, amount_paid_fcfa, content_id").eq("status", "completed").gte("created_at", startOfMonthStr);
         if (err2) throw err2;
-        if (monthPurchases) {
-          platformEarnings = monthPurchases.reduce((sum, p) => sum + (p.commission_amount_fcfa || 0), 0);
-          totalVolume = monthPurchases.reduce((sum, p) => sum + (p.amount_paid_fcfa || 0), 0);
-        }
+        const realMonthPurchases = (monthPurchases || []).filter((p) => !testContentIds.has(p.content_id));
+        platformEarnings = realMonthPurchases.reduce((sum, p) => sum + (p.commission_amount_fcfa || 0), 0);
+        totalVolume = realMonthPurchases.reduce((sum, p) => sum + (p.amount_paid_fcfa || 0), 0);
         const { count: pendingWithdrawals, error: err3 } = await supabaseAdmin.from("withdrawals").select("*", { count: "exact", head: true }).eq("status", "pending");
         if (err3) throw err3;
         pendingWithdrawalsCount = pendingWithdrawals || 0;
@@ -1892,9 +2070,10 @@ app.get("/api/admin/chart", async (req, res) => {
     let usedFallback = false;
     if (supabaseAdmin) {
       try {
-        const { data: purchases, error: err1 } = await supabaseAdmin.from("purchases").select("commission_amount_fcfa, created_at").eq("status", "completed").gte("created_at", startDateStr).lte("created_at", endDateStr);
+        const { contentIds: testContentIds } = await getTestAccountIds();
+        const { data: purchases, error: err1 } = await supabaseAdmin.from("purchases").select("commission_amount_fcfa, created_at, content_id").eq("status", "completed").gte("created_at", startDateStr).lte("created_at", endDateStr);
         if (err1) throw err1;
-        (purchases || []).forEach((p) => {
+        (purchases || []).filter((p) => !testContentIds.has(p.content_id)).forEach((p) => {
           const idx = findBucketIndex(new Date(p.created_at));
           if (idx >= 0) buckets[idx].revenu += p.commission_amount_fcfa || 0;
         });
@@ -1919,11 +2098,14 @@ app.get("/api/admin/chart", async (req, res) => {
 app.get("/api/admin/creators", async (req, res) => {
   try {
     const search = (req.query.search || "").toLowerCase().trim();
+    const testOnly = req.query.testOnly === "true";
     let resultCreators = [];
     let usedFallback = false;
     if (supabaseAdmin) {
       try {
-        const { data: creators, error } = await supabaseAdmin.from("creator_profiles").select("*").order("created_at", { ascending: false });
+        let query = supabaseAdmin.from("creator_profiles").select("*").order("created_at", { ascending: false });
+        if (testOnly) query = query.eq("is_test_account", true);
+        const { data: creators, error } = await query;
         if (error) throw error;
         resultCreators = creators || [];
       } catch (dbErr) {
@@ -1933,6 +2115,7 @@ app.get("/api/admin/creators", async (req, res) => {
     }
     if (!supabaseAdmin || usedFallback) {
       resultCreators = [...serverDb.getCreators()].sort((a, b) => b.created_at.localeCompare(a.created_at));
+      if (testOnly) resultCreators = resultCreators.filter((c) => c.is_test_account);
     }
     const creatorStatsList = await Promise.all(resultCreators.map(async (creator) => {
       let activeSubStatus = "none";
@@ -2184,7 +2367,7 @@ app.get("/api/admin/creators/:id/details", async (req, res) => {
       subscriptions = [{
         id: "sub_profile_premium",
         creator_id: id,
-        amount_paid: 5e3,
+        amount_paid: SUBSCRIPTION_PRICE_FCFA,
         currency: "XOF",
         start_date: creator.created_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3).toISOString(),
         end_date: creator.premium_expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3).toISOString(),
@@ -2254,6 +2437,9 @@ app.post("/api/admin/withdrawals/:id/pay", async (req, res) => {
     }
     if (!withdrawal) {
       return res.status(404).json({ error: "Demande de retrait introuvable." });
+    }
+    if (withdrawal.creator_profiles?.is_test_account) {
+      return res.status(400).json({ error: "Ce compte est un compte de test : aucun paiement r\xE9el ne peut \xEAtre envoy\xE9." });
     }
     const nowStr = (/* @__PURE__ */ new Date()).toISOString();
     if (supabaseAdmin) {
@@ -2371,7 +2557,7 @@ app.get("/api/admin/subscriptions", async (req, res) => {
           const endDate = new Date(expiryDateStr);
           daysRemaining = Math.ceil((endDate.getTime() - Date.now()) / (1e3 * 60 * 60 * 24));
           if (amountPaid === 0) {
-            amountPaid = 5e3;
+            amountPaid = SUBSCRIPTION_PRICE_FCFA;
           }
         }
       } else {
@@ -2397,7 +2583,7 @@ app.get("/api/admin/subscriptions", async (req, res) => {
           const endDate = new Date(expiryDateStr);
           daysRemaining = Math.ceil((endDate.getTime() - Date.now()) / (1e3 * 60 * 60 * 24));
           if (amountPaid === 0) {
-            amountPaid = 5e3;
+            amountPaid = SUBSCRIPTION_PRICE_FCFA;
           }
         }
         amountPaid = subs.reduce((sum, s) => sum + (s.amountPaid || 0), 0);
@@ -2410,7 +2596,8 @@ app.get("/api/admin/subscriptions", async (req, res) => {
         status: subStatus,
         expiryDate: expiryDateStr,
         daysRemaining,
-        amountPaid
+        amountPaid,
+        is_test_account: !!creator.is_test_account
       };
     }));
     const filtered = fullSubsList.filter((s) => {
@@ -2434,8 +2621,8 @@ app.get("/api/admin/transactions", async (req, res) => {
     const status = req.query.status || "all";
     let fullList = [];
     if (supabaseAdmin) {
-      const { data: purchases } = await supabaseAdmin.from("purchases").select("*, contents(title, creator_profiles(display_name, username, avatar_url))").order("created_at", { ascending: false });
-      const purchaseTransactions = (purchases || []).map((p) => ({
+      const { data: purchases } = await supabaseAdmin.from("purchases").select("*, contents(title, creator_profiles(display_name, username, avatar_url, is_test_account))").order("created_at", { ascending: false });
+      const purchaseTransactions = (purchases || []).filter((p) => !p.contents?.creator_profiles?.is_test_account).map((p) => ({
         id: p.id,
         date: p.created_at,
         type: "purchase",
@@ -2449,8 +2636,8 @@ app.get("/api/admin/transactions", async (req, res) => {
         // completed, pending, failed
         providerTxId: p.payment_reference || ""
       }));
-      const { data: subs } = await supabaseAdmin.from("subscriptions").select("*, creator_profiles(display_name, username, avatar_url), transactions(provider_transaction_id)").order("created_at", { ascending: false });
-      const subTransactions = (subs || []).map((s) => ({
+      const { data: subs } = await supabaseAdmin.from("subscriptions").select("*, creator_profiles(display_name, username, avatar_url, is_test_account), transactions(provider_transaction_id)").order("created_at", { ascending: false });
+      const subTransactions = (subs || []).filter((s) => !s.creator_profiles?.is_test_account).map((s) => ({
         id: s.id,
         date: s.created_at,
         type: "subscription",
@@ -2522,9 +2709,9 @@ app.get("/api/admin/recent-purchases", async (req, res) => {
     let usedFallback = false;
     if (supabaseAdmin) {
       try {
-        const { data: purchases, error: err1 } = await supabaseAdmin.from("purchases").select("*, contents(title, creator_profiles(display_name, username))").order("created_at", { ascending: false }).limit(5);
+        const { data: purchases, error: err1 } = await supabaseAdmin.from("purchases").select("*, contents(title, creator_profiles(display_name, username, is_test_account))").order("created_at", { ascending: false }).limit(20);
         if (err1) throw err1;
-        recentPurchases = (purchases || []).map((p) => ({
+        recentPurchases = (purchases || []).filter((p) => !p.contents?.creator_profiles?.is_test_account).slice(0, 5).map((p) => ({
           id: p.id,
           createdAt: p.created_at,
           creatorName: p.contents?.creator_profiles?.display_name || "Inconnu",
@@ -2733,6 +2920,433 @@ app.post("/api/admin/creators/:id/grant-premium", async (req, res) => {
     return res.status(500).json({ error: "Erreur lors de l'attribution du premium." });
   }
 });
+var FAKE_DONOR_NAMES = [
+  "A\xEFcha D.",
+  "Moussa K.",
+  "Fatou S.",
+  "Ibrahim T.",
+  "Awa N.",
+  "Yao B.",
+  "Mariam C.",
+  "Kofi A.",
+  "Adjoa L.",
+  "Sekou M.",
+  "Nad\xE8ge P.",
+  "Kwame O."
+];
+app.post("/api/admin/creators/:id/seed-test-data", async (req, res) => {
+  const { id } = req.params;
+  const purchasesCount = Math.min(200, Math.max(0, Number(req.body?.purchasesCount ?? 15)));
+  const donationsCount = Math.min(200, Math.max(0, Number(req.body?.donationsCount ?? 8)));
+  const daysRange = Math.min(365, Math.max(1, Number(req.body?.daysRange ?? 30)));
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: "Supabase non configur\xE9 : impossible de g\xE9n\xE9rer des donn\xE9es de test." });
+  }
+  try {
+    const { data: creator, error: creatorErr } = await supabaseAdmin.from("creator_profiles").select("id, is_test_account, payout_provider").eq("id", id).maybeSingle();
+    if (creatorErr) throw creatorErr;
+    if (!creator) return res.status(404).json({ error: "Cr\xE9ateur introuvable." });
+    if (!creator.is_test_account) {
+      return res.status(403).json({ error: "Ce cr\xE9ateur n'est pas marqu\xE9 comme compte de test. Activez `is_test_account` avant de g\xE9n\xE9rer de fausses donn\xE9es." });
+    }
+    const { data: contents, error: contentsErr } = await supabaseAdmin.from("contents").select("id, price_fcfa").eq("creator_id", id).eq("status", "published");
+    if (contentsErr) throw contentsErr;
+    if (purchasesCount > 0 && (!contents || contents.length === 0)) {
+      return res.status(400).json({ error: "Ce cr\xE9ateur n'a aucun contenu publi\xE9 : ajoutez au moins un contenu avant de g\xE9n\xE9rer de fausses ventes." });
+    }
+    const fakePurchases = Array.from({ length: purchasesCount }).map(() => {
+      const content = contents[Math.floor(Math.random() * contents.length)];
+      const amount = content.price_fcfa;
+      const commission = Math.round(amount * 0.1);
+      return {
+        buyer_phone: `+2289${Math.floor(1e6 + Math.random() * 8999999)}`,
+        content_id: content.id,
+        status: "completed",
+        amount_paid_fcfa: amount,
+        commission_amount_fcfa: commission,
+        creator_net_amount_fcfa: amount - commission,
+        payment_reference: generateFakePaymentReference(randomMomoProvider()),
+        is_fake: true,
+        created_at: randomGrowthDate(daysRange)
+      };
+    });
+    const fakeDonations = Array.from({ length: donationsCount }).map(() => {
+      const amount = [1e3, 1500, 2e3, 2500, 3e3, 5e3][Math.floor(Math.random() * 6)];
+      const commission = Math.round(amount * 0.1);
+      return {
+        creator_id: id,
+        donor_name: FAKE_DONOR_NAMES[Math.floor(Math.random() * FAKE_DONOR_NAMES.length)],
+        donor_email: null,
+        donor_message: null,
+        status: "completed",
+        amount_fcfa: amount,
+        commission_amount_fcfa: commission,
+        creator_net_amount_fcfa: amount - commission,
+        payment_reference: generateFakePaymentReference(randomMomoProvider()),
+        is_fake: true,
+        created_at: randomGrowthDate(daysRange)
+      };
+    });
+    if (fakePurchases.length > 0) {
+      const { error: insertPurchasesErr } = await supabaseAdmin.from("purchases").insert(fakePurchases);
+      if (insertPurchasesErr) throw insertPurchasesErr;
+    }
+    if (fakeDonations.length > 0) {
+      const { error: insertDonationsErr } = await supabaseAdmin.from("donations").insert(fakeDonations);
+      if (insertDonationsErr) throw insertDonationsErr;
+    }
+    return res.json({
+      success: true,
+      purchasesCreated: fakePurchases.length,
+      donationsCreated: fakeDonations.length
+    });
+  } catch (err) {
+    console.error("[Server] Seed test data error:", err);
+    return res.status(500).json({ error: err.message || "Erreur lors de la g\xE9n\xE9ration des donn\xE9es de test." });
+  }
+});
+app.post("/api/admin/test-accounts", async (req, res) => {
+  const { email, password, username, display_name } = req.body || {};
+  if (!email || !password || !username || !display_name) {
+    return res.status(400).json({ error: "Champs requis : email, password, username, display_name." });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: "Le mot de passe doit contenir au moins 6 caract\xE8res." });
+  }
+  if (!/^[a-z0-9_]{3,30}$/.test(username.toLowerCase())) {
+    return res.status(400).json({ error: "Nom d'utilisateur invalide (3-30 caract\xE8res, lettres/chiffres/underscore)." });
+  }
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: "Supabase non configur\xE9 : impossible de cr\xE9er un compte de test." });
+  }
+  try {
+    const { data: existingUsername } = await supabaseAdmin.from("creator_profiles").select("id").eq("username", username.toLowerCase()).maybeSingle();
+    if (existingUsername) {
+      return res.status(400).json({ error: "Ce nom d'utilisateur est d\xE9j\xE0 pris." });
+    }
+    const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true
+    });
+    if (createErr) {
+      if (String(createErr.message || "").toLowerCase().includes("already")) {
+        return res.status(400).json({ error: 'Un compte existe d\xE9j\xE0 avec cet email. Utilisez plut\xF4t "Lier un compte existant".' });
+      }
+      throw createErr;
+    }
+    const userId = created.user.id;
+    const { data: profile, error: profileErr } = await supabaseAdmin.from("creator_profiles").insert({
+      user_id: userId,
+      username: username.toLowerCase(),
+      display_name,
+      bio: "",
+      payout_phone_number: "+22900000000",
+      payout_provider: "wave",
+      status: "active",
+      is_test_account: true,
+      is_premium: true,
+      premium_expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3).toISOString()
+    }).select().single();
+    if (profileErr) {
+      await supabaseAdmin.auth.admin.deleteUser(userId);
+      throw profileErr;
+    }
+    return res.json({ success: true, creator: profile });
+  } catch (err) {
+    console.error("[Server] Create test account error:", err);
+    return res.status(500).json({ error: err.message || "Erreur lors de la cr\xE9ation du compte de test." });
+  }
+});
+app.post("/api/admin/creators/:id/toggle-test-account", async (req, res) => {
+  const { id } = req.params;
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: "Supabase non configur\xE9." });
+  }
+  try {
+    const { data: creator, error: fetchErr } = await supabaseAdmin.from("creator_profiles").select("is_test_account").eq("id", id).maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!creator) return res.status(404).json({ error: "Cr\xE9ateur introuvable." });
+    const { data: updated, error: updateErr } = await supabaseAdmin.from("creator_profiles").update({ is_test_account: !creator.is_test_account }).eq("id", id).select("id, is_test_account").single();
+    if (updateErr) throw updateErr;
+    return res.json({ success: true, is_test_account: updated.is_test_account });
+  } catch (err) {
+    console.error("[Server] Toggle test account error:", err);
+    return res.status(500).json({ error: err.message || "Erreur lors du changement de statut." });
+  }
+});
+app.post("/api/admin/creators/:id/fake-purchase", async (req, res) => {
+  const { id } = req.params;
+  const { contentId, createdAt } = req.body || {};
+  if (!contentId || !createdAt) {
+    return res.status(400).json({ error: "Champs requis : contentId, createdAt." });
+  }
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: "Supabase non configur\xE9." });
+  }
+  try {
+    const { data: creator, error: creatorErr } = await supabaseAdmin.from("creator_profiles").select("id, is_test_account, payout_provider").eq("id", id).maybeSingle();
+    if (creatorErr) throw creatorErr;
+    if (!creator) return res.status(404).json({ error: "Cr\xE9ateur introuvable." });
+    if (!creator.is_test_account) {
+      return res.status(403).json({ error: "Ce cr\xE9ateur n'est pas un compte de test." });
+    }
+    const { data: content, error: contentErr } = await supabaseAdmin.from("contents").select("id, price_fcfa, creator_id").eq("id", contentId).maybeSingle();
+    if (contentErr) throw contentErr;
+    if (!content || content.creator_id !== id) {
+      return res.status(400).json({ error: "Ce contenu n'appartient pas \xE0 ce cr\xE9ateur." });
+    }
+    const amount = content.price_fcfa;
+    const commission = Math.round(amount * 0.1);
+    const { data: purchase, error: insertErr } = await supabaseAdmin.from("purchases").insert({
+      buyer_phone: `+2289${Math.floor(1e6 + Math.random() * 8999999)}`,
+      content_id: contentId,
+      status: "completed",
+      amount_paid_fcfa: amount,
+      commission_amount_fcfa: commission,
+      creator_net_amount_fcfa: amount - commission,
+      payment_reference: generateFakePaymentReference(randomMomoProvider()),
+      is_fake: true,
+      created_at: new Date(createdAt).toISOString()
+    }).select().single();
+    if (insertErr) throw insertErr;
+    return res.json({ success: true, purchase });
+  } catch (err) {
+    console.error("[Server] Fake purchase error:", err);
+    return res.status(500).json({ error: err.message || "Erreur lors de la cr\xE9ation de la vente fictive." });
+  }
+});
+app.post("/api/admin/creators/:id/fake-donation", async (req, res) => {
+  const { id } = req.params;
+  const { amount, donorName, createdAt } = req.body || {};
+  const amountNum = Number(amount);
+  if (!amountNum || amountNum < 1e3 || !donorName || !createdAt) {
+    return res.status(400).json({ error: "Champs requis : amount (>= 1000), donorName, createdAt." });
+  }
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: "Supabase non configur\xE9." });
+  }
+  try {
+    const { data: creator, error: creatorErr } = await supabaseAdmin.from("creator_profiles").select("id, is_test_account, payout_provider").eq("id", id).maybeSingle();
+    if (creatorErr) throw creatorErr;
+    if (!creator) return res.status(404).json({ error: "Cr\xE9ateur introuvable." });
+    if (!creator.is_test_account) {
+      return res.status(403).json({ error: "Ce cr\xE9ateur n'est pas un compte de test." });
+    }
+    const commission = Math.round(amountNum * 0.1);
+    const { data: donation, error: insertErr } = await supabaseAdmin.from("donations").insert({
+      creator_id: id,
+      donor_name: donorName,
+      donor_email: null,
+      donor_message: null,
+      status: "completed",
+      amount_fcfa: amountNum,
+      commission_amount_fcfa: commission,
+      creator_net_amount_fcfa: amountNum - commission,
+      payment_reference: generateFakePaymentReference(randomMomoProvider()),
+      is_fake: true,
+      created_at: new Date(createdAt).toISOString()
+    }).select().single();
+    if (insertErr) throw insertErr;
+    return res.json({ success: true, donation });
+  } catch (err) {
+    console.error("[Server] Fake donation error:", err);
+    return res.status(500).json({ error: err.message || "Erreur lors de la cr\xE9ation du don fictif." });
+  }
+});
+app.post("/api/admin/creators/:id/fake-withdrawal", async (req, res) => {
+  const { id } = req.params;
+  const { amount, createdAt } = req.body || {};
+  const amountNum = Number(amount);
+  if (!amountNum || amountNum < 5e3 || !createdAt) {
+    return res.status(400).json({ error: "Champs requis : amount (>= 5000), createdAt." });
+  }
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: "Supabase non configur\xE9." });
+  }
+  try {
+    const { data: creator, error: creatorErr } = await supabaseAdmin.from("creator_profiles").select("id, is_test_account, payout_provider, payout_phone_number").eq("id", id).maybeSingle();
+    if (creatorErr) throw creatorErr;
+    if (!creator) return res.status(404).json({ error: "Cr\xE9ateur introuvable." });
+    if (!creator.is_test_account) {
+      return res.status(403).json({ error: "Ce cr\xE9ateur n'est pas un compte de test." });
+    }
+    const requestedAt = new Date(createdAt).toISOString();
+    const { data: withdrawal, error: insertErr } = await supabaseAdmin.from("withdrawals").insert({
+      creator_id: id,
+      amount_requested: amountNum,
+      payout_provider: creator.payout_provider || "wave",
+      payout_phone_number: creator.payout_phone_number || "+22900000000",
+      status: "paid",
+      is_fake: true,
+      requested_at: requestedAt,
+      processed_at: requestedAt
+    }).select().single();
+    if (insertErr) throw insertErr;
+    return res.json({ success: true, withdrawal });
+  } catch (err) {
+    console.error("[Server] Fake withdrawal error:", err);
+    return res.status(500).json({ error: err.message || "Erreur lors de la cr\xE9ation du retrait fictif." });
+  }
+});
+app.get("/api/admin/creators/:id/fake-transactions", async (req, res) => {
+  const { id } = req.params;
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: "Supabase non configur\xE9." });
+  }
+  try {
+    const { data: contents } = await supabaseAdmin.from("contents").select("id, title").eq("creator_id", id);
+    const contentMap = new Map((contents || []).map((c) => [c.id, c.title]));
+    const contentIds = (contents || []).map((c) => c.id);
+    let purchases = [];
+    if (contentIds.length > 0) {
+      const { data } = await supabaseAdmin.from("purchases").select("id, content_id, amount_paid_fcfa, created_at").in("content_id", contentIds).eq("is_fake", true).order("created_at", { ascending: false });
+      purchases = (data || []).map((p) => ({
+        id: p.id,
+        type: "purchase",
+        label: contentMap.get(p.content_id) || "Contenu",
+        amount: p.amount_paid_fcfa,
+        createdAt: p.created_at
+      }));
+    }
+    const { data: donationsData } = await supabaseAdmin.from("donations").select("id, donor_name, amount_fcfa, created_at").eq("creator_id", id).eq("is_fake", true).order("created_at", { ascending: false });
+    const donations = (donationsData || []).map((d) => ({
+      id: d.id,
+      type: "donation",
+      label: d.donor_name,
+      amount: d.amount_fcfa,
+      createdAt: d.created_at
+    }));
+    const { data: withdrawalsData } = await supabaseAdmin.from("withdrawals").select("id, amount_requested, requested_at").eq("creator_id", id).eq("is_fake", true).order("requested_at", { ascending: false });
+    const withdrawals = (withdrawalsData || []).map((w) => ({
+      id: w.id,
+      type: "withdrawal",
+      label: "Retrait",
+      amount: w.amount_requested,
+      createdAt: w.requested_at
+    }));
+    const combined = [...purchases, ...donations, ...withdrawals].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return res.json(combined);
+  } catch (err) {
+    console.error("[Server] Fake transactions list error:", err);
+    return res.status(500).json({ error: err.message || "Erreur lors de la r\xE9cup\xE9ration des transactions fictives." });
+  }
+});
+app.delete("/api/admin/fake-transactions/:type/:id", async (req, res) => {
+  const { type, id } = req.params;
+  if (type !== "purchase" && type !== "donation" && type !== "withdrawal") {
+    return res.status(400).json({ error: "Type invalide (purchase, donation ou withdrawal)." });
+  }
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: "Supabase non configur\xE9." });
+  }
+  try {
+    if (type === "purchase") {
+      const { data: purchase, error: fetchErr } = await supabaseAdmin.from("purchases").select("id, is_fake, content_id, contents(creator_id, creator_profiles(is_test_account))").eq("id", id).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!purchase) return res.status(404).json({ error: "Vente introuvable." });
+      if (!purchase.is_fake || !purchase.contents?.creator_profiles?.is_test_account) {
+        return res.status(403).json({ error: "Cette vente ne peut pas \xEAtre supprim\xE9e (pas une donn\xE9e de test)." });
+      }
+      const { error: delErr } = await supabaseAdmin.from("purchases").delete().eq("id", id);
+      if (delErr) throw delErr;
+    } else if (type === "donation") {
+      const { data: donation, error: fetchErr } = await supabaseAdmin.from("donations").select("id, is_fake, creator_id, creator_profiles(is_test_account)").eq("id", id).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!donation) return res.status(404).json({ error: "Don introuvable." });
+      if (!donation.is_fake || !donation.creator_profiles?.is_test_account) {
+        return res.status(403).json({ error: "Ce don ne peut pas \xEAtre supprim\xE9 (pas une donn\xE9e de test)." });
+      }
+      const { error: delErr } = await supabaseAdmin.from("donations").delete().eq("id", id);
+      if (delErr) throw delErr;
+    } else {
+      const { data: withdrawal, error: fetchErr } = await supabaseAdmin.from("withdrawals").select("id, is_fake, creator_id, creator_profiles(is_test_account)").eq("id", id).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!withdrawal) return res.status(404).json({ error: "Retrait introuvable." });
+      if (!withdrawal.is_fake || !withdrawal.creator_profiles?.is_test_account) {
+        return res.status(403).json({ error: "Ce retrait ne peut pas \xEAtre supprim\xE9 (pas une donn\xE9e de test)." });
+      }
+      const { error: delErr } = await supabaseAdmin.from("withdrawals").delete().eq("id", id);
+      if (delErr) throw delErr;
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[Server] Delete fake transaction error:", err);
+    return res.status(500).json({ error: err.message || "Erreur lors de la suppression." });
+  }
+});
+var RESERVED_ROOT_PATHS = /* @__PURE__ */ new Set([
+  "auth",
+  "dashboard",
+  "admin",
+  "portal",
+  "legal",
+  "pay",
+  "payment",
+  "congrat",
+  "onboarding",
+  "api",
+  "content"
+]);
+var USERNAME_PATH_RE = /^\/([a-zA-Z0-9_.]+)\/?$/;
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+async function getCreatorForOg(username) {
+  if (!supabase) return null;
+  const { data } = await supabase.from("creator_profiles").select("display_name, username, bio, avatar_url").eq("username", username.toLowerCase()).eq("status", "active").maybeSingle();
+  return data;
+}
+function injectOgTags(html, creator, pageUrl) {
+  const title = escapeHtml(`${creator.display_name} \u2014 contenus exclusifs | MomoLink`);
+  const description = escapeHtml(
+    creator.bio?.trim() || `D\xE9couvrez les contenus exclusifs de ${creator.display_name} sur MomoLink.`
+  );
+  const image = creator.avatar_url ? escapeHtml(creator.avatar_url) : "";
+  const tags = `
+    <title>${title}</title>
+    <meta name="description" content="${description}" />
+    <meta property="og:type" content="profile" />
+    <meta property="og:title" content="${title}" />
+    <meta property="og:description" content="${description}" />
+    <meta property="og:url" content="${escapeHtml(pageUrl)}" />
+    ${image ? `<meta property="og:image" content="${image}" />` : ""}
+    <meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}" />
+    <meta name="twitter:title" content="${title}" />
+    <meta name="twitter:description" content="${description}" />
+    ${image ? `<meta name="twitter:image" content="${image}" />` : ""}
+  `;
+  return html.replace(/<title>.*?<\/title>/i, "").replace("</head>", `${tags}
+  </head>`);
+}
+async function maybeServeCreatorOgPage(req, res, readHtml) {
+  const match = USERNAME_PATH_RE.exec(req.path);
+  if (!match) return false;
+  const candidate = match[1].toLowerCase();
+  if (RESERVED_ROOT_PATHS.has(candidate)) return false;
+  try {
+    const creator = await getCreatorForOg(candidate);
+    if (!creator) return false;
+    const html = await readHtml();
+    const pageUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+    res.status(200).set({ "Content-Type": "text/html" }).end(injectOgTags(html, creator, pageUrl));
+    return true;
+  } catch (err) {
+    console.error("[Server] OG injection error:", err);
+    return false;
+  }
+}
+if (process.env.VERCEL) {
+  app.use(async (req, res, next) => {
+    if (req.method !== "GET") return next();
+    const handled = await maybeServeCreatorOgPage(req, res, async () => {
+      const origin = `${req.protocol}://${req.get("host")}`;
+      const r = await fetch(`${origin}/index.html`);
+      return r.text();
+    });
+    if (!handled) next();
+  });
+}
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     console.log("[Server] Starting development server with Vite middleware...");
@@ -2741,13 +3355,23 @@ async function startServer() {
       server: { middlewareMode: true },
       appType: "spa"
     });
+    app.use(async (req, res, next) => {
+      if (req.method !== "GET") return next();
+      const handled = await maybeServeCreatorOgPage(req, res, async () => {
+        const rawHtml = fs2.readFileSync(path2.resolve(process.cwd(), "index.html"), "utf-8");
+        return vite.transformIndexHtml(req.originalUrl, rawHtml);
+      });
+      if (!handled) next();
+    });
     app.use(vite.middlewares);
   } else {
     console.log("[Server] Starting production server...");
     const distPath = path2.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path2.join(distPath, "index.html"));
+    app.get("*", async (req, res) => {
+      const indexPath = path2.join(distPath, "index.html");
+      const handled = await maybeServeCreatorOgPage(req, res, async () => fs2.readFileSync(indexPath, "utf-8"));
+      if (!handled) res.sendFile(indexPath);
     });
   }
   app.listen(PORT, "0.0.0.0", () => {

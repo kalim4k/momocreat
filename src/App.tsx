@@ -16,7 +16,6 @@ import {
   ArrowRight, 
   UploadCloud,
   Share2,
-  Coins,
   Wallet,
   Sparkles, 
   Lock, 
@@ -34,7 +33,10 @@ import {
   Globe,
   Quote,
   Youtube,
-  ShoppingBag
+  ShoppingBag,
+  Heart,
+  MessageCircle,
+  Crown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
@@ -242,7 +244,19 @@ export function LandingPage() {
     },
     {
       q: "Quels sont les frais de MomoLink ?",
-      a: "L'inscription est 100% gratuite. Nous prélevons uniquement une commission de 10% sur chaque transaction réussie. Il n'y a aucun abonnement mensuel, aucun frais caché ni frais de retrait sur vos comptes."
+      a: "L'inscription et la création de votre boutique sont 100% gratuites. Nous prélevons une commission de 10% sur chaque vente ou don réussi. Pour publier du contenu et demander des retraits, un abonnement MomoLink Pro à 4 990 FCFA/mois est requis — votre page publique reste toutefois visible même sans abonnement actif."
+    },
+    {
+      q: "À quoi sert l'abonnement MomoLink Pro ?",
+      a: "L'abonnement Pro (4 990 FCFA/mois) débloque la publication de nouveaux contenus et les demandes de retrait vers votre Mobile Money. En cas d'expiration, vous disposez de 3 jours de grâce avant que vos contenus ne soient temporairement archivés ; votre page reste visible par vos fans dans tous les cas."
+    },
+    {
+      q: "Puis-je recevoir des dons de mes fans ?",
+      a: "Oui, chaque page de créateur inclut un bouton de don. Vos fans peuvent vous envoyer un pourboire libre (à partir de 1 000 FCFA), accompagné d'un message optionnel, directement en Mobile Money. La même commission de 10% s'applique."
+    },
+    {
+      q: "Comment mes fans peuvent-ils me contacter ?",
+      a: "Votre page publique intègre un formulaire de message et de proposition de partenariat. Ces messages sont gratuits et arrivent directement dans votre tableau de bord."
     },
     {
       q: "Dans quels pays le service est-il disponible ?",
@@ -250,7 +264,7 @@ export function LandingPage() {
     },
     {
       q: "Comment puis-je retirer mes gains ?",
-      a: "Vous pouvez demander un retrait vers votre numéro Mobile Money (Wave, Orange, MTN ou Moov) à tout moment depuis votre tableau de bord. Les demandes sont traitées en moins de 24h ouvrées."
+      a: "Vous pouvez demander un retrait vers votre numéro Mobile Money (Wave, Orange, MTN ou Moov) à tout moment depuis votre tableau de bord, à condition que votre abonnement MomoLink Pro soit actif. Les demandes sont traitées en moins de 24h ouvrées."
     },
     {
       q: "La livraison des fichiers est-elle sécurisée ?",
@@ -1060,6 +1074,54 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* Features Section: Vente, Dons & Messages */}
+      <section id="features" className={`border-t ${styles.border} py-20 px-4 ${isDarkMode ? 'bg-bg-surface/30' : 'bg-gray-50/50'}`}>
+        <div className="max-w-5xl mx-auto flex flex-col gap-14">
+          <div className="text-center flex flex-col gap-3">
+            <span className="text-[10px] font-bold text-accent-corail uppercase tracking-widest">Toutes vos sources de revenus</span>
+            <h2 className="font-display text-3xl sm:text-4xl font-medium tracking-tight">Bien plus qu'une simple boutique</h2>
+            <p className={`text-sm ${styles.textSecondary} max-w-lg mx-auto`}>
+              MomoLink combine trois façons de gagner de l'argent avec votre audience, toutes encaissées au même endroit.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Feature 1: Vente de contenu */}
+            <div className={`p-7 rounded-[20px] border ${styles.surface} flex flex-col gap-4`}>
+              <div className="p-3.5 rounded-xl bg-accent-corail/10 text-accent-corail w-fit">
+                <ShoppingBag size={22} />
+              </div>
+              <h3 className="font-display text-lg font-medium">Vente de contenus exclusifs</h3>
+              <p className={`text-sm ${styles.textSecondary} leading-relaxed`}>
+                Fixez un prix pour vos guides, formations, photos ou vidéos et livrez-les automatiquement dès le paiement validé.
+              </p>
+            </div>
+
+            {/* Feature 2: Dons */}
+            <div className={`p-7 rounded-[20px] border ${styles.surface} flex flex-col gap-4`}>
+              <div className="p-3.5 rounded-xl bg-pink-500/10 text-pink-500 w-fit">
+                <Heart size={22} />
+              </div>
+              <h3 className="font-display text-lg font-medium">Dons & Pourboires</h3>
+              <p className={`text-sm ${styles.textSecondary} leading-relaxed`}>
+                Vos fans peuvent vous soutenir directement depuis votre page publique avec un don libre (dès 1 000 FCFA), accompagné d'un message si souhaité.
+              </p>
+            </div>
+
+            {/* Feature 3: Messages */}
+            <div className={`p-7 rounded-[20px] border ${styles.surface} flex flex-col gap-4`}>
+              <div className="p-3.5 rounded-xl bg-blue-500/10 text-blue-500 w-fit">
+                <MessageCircle size={22} />
+              </div>
+              <h3 className="font-display text-lg font-medium">Messages directs</h3>
+              <p className={`text-sm ${styles.textSecondary} leading-relaxed`}>
+                Recevez gratuitement des messages et des propositions de partenariat de vos fans, centralisés dans votre tableau de bord.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Platform Impact Section */}
       <PlatformImpact />
 
@@ -1097,27 +1159,26 @@ export function LandingPage() {
 
           <div className={`p-8 rounded-[24px] border ${styles.surface} flex flex-col gap-6 relative overflow-hidden`}>
             <div className="absolute top-0 right-0 w-32 h-32 bg-accent-corail/5 rounded-full blur-3xl" />
-            <h3 className="font-display text-xl font-medium">Prêt pour le grand saut ?</h3>
-            
-            <div className="flex flex-col gap-4 text-xs">
-              <div className="flex gap-3">
-                <span className="p-2 h-fit rounded-lg bg-accent-corail/10 text-accent-corail shrink-0">
-                  <Smartphone size={16} />
-                </span>
-                <div>
-                  <h4 className="font-semibold text-sm mb-0.5">Compatible avec 100% des smartphones</h4>
-                  <p className={styles.textSecondary}>Achetez sur n'importe quel mobile sans aucune application externe requise.</p>
-                </div>
-              </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-bold text-accent-corail uppercase tracking-widest">Tarifs transparents</span>
+              <h3 className="font-display text-xl font-medium">Combien ça coûte ?</h3>
+            </div>
 
-              <div className="flex gap-3">
-                <span className="p-2 h-fit rounded-lg bg-accent-corail/10 text-accent-corail shrink-0">
-                  <Coins size={16} />
-                </span>
-                <div>
-                  <h4 className="font-semibold text-sm mb-0.5">Retraits instantanés de vos fonds</h4>
-                  <p className={styles.textSecondary}>Votre argent est transféré vers votre compte Mobile Money dès que vous en faites la demande.</p>
+            <div className="flex flex-col gap-3 text-xs">
+              <div className="flex items-center justify-between py-2.5 border-b border-border-custom">
+                <span className={`font-semibold ${styles.textPrimary}`}>Inscription & création de boutique</span>
+                <span className="font-bold text-emerald-500">Gratuit</span>
+              </div>
+              <div className="flex items-center justify-between py-2.5 border-b border-border-custom">
+                <span className={`font-semibold ${styles.textPrimary}`}>Commission par vente ou don</span>
+                <span className="font-bold text-accent-corail">10%</span>
+              </div>
+              <div className="flex items-start justify-between py-2.5 gap-3">
+                <div className="flex flex-col gap-0.5">
+                  <span className={`font-semibold ${styles.textPrimary}`}>Formule MomoLink Pro</span>
+                  <span className={styles.textSecondary}>Requise pour publier du contenu et demander des retraits.</span>
                 </div>
+                <span className="font-bold text-accent-corail whitespace-nowrap">4 990 FCFA/mois</span>
               </div>
             </div>
 

@@ -61,6 +61,9 @@ export default function Cgv() {
                 <li>Des accès à des contenus premium ou des formules d'abonnements.</li>
               </ul>
               <p className="mt-1">
+                La plateforme permet également au Vendeur de recevoir des dons ou pourboires libres de la part de ses Clients (ci-après les "Dons"), ainsi que des messages directs ou propositions de partenariat via sa page publique.
+              </p>
+              <p className="mt-1">
                 Momo Creator agit en tant qu'intermédiaire technique facilitant la mise en relation entre les Vendeurs et leurs Clients, et intégrant des solutions de paiement tiers (Wave, Orange Money, MTN, Moov, et Cartes Bancaires).
               </p>
             </div>
@@ -81,30 +84,40 @@ export default function Cgv() {
               </p>
               <div className="p-5 rounded-2xl border border-border-custom bg-light-bg-surface flex flex-col gap-3 my-2">
                 <div className="flex items-center justify-between border-b border-border-custom pb-2">
-                  <span className="font-semibold text-text-primary">Frais d'abonnement mensuel</span>
-                  <span className="font-bold text-emerald-600">0 FCFA</span>
+                  <span className="font-semibold text-text-primary">Inscription et création de boutique</span>
+                  <span className="font-bold text-emerald-600">Gratuit</span>
                 </div>
                 <div className="flex items-center justify-between border-b border-border-custom pb-2">
                   <span className="font-semibold text-text-primary">Frais de transaction (Commission)</span>
-                  <span className="font-bold text-accent-corail">10% par vente réussie</span>
+                  <span className="font-bold text-accent-corail">10% par vente ou don réussi</span>
+                </div>
+                <div className="flex items-center justify-between border-b border-border-custom pb-2">
+                  <span className="font-semibold text-text-primary">Abonnement "MomoLink Pro"</span>
+                  <span className="font-bold text-accent-corail">4 990 FCFA / mois</span>
                 </div>
                 <p className="text-xs text-text-secondary leading-relaxed">
-                  Cette commission de 10% est prélevée automatiquement sur chaque paiement validé. Ce taux inclut la maintenance de la plateforme, l'hébergement sécurisé de vos fichiers pour la livraison automatique, ainsi que les frais techniques d'intégration des opérateurs de Mobile Money et cartes bancaires.
+                  La commission de 10% est prélevée automatiquement sur chaque paiement validé, qu'il s'agisse d'une vente de contenu ou d'un Don reçu. Elle couvre la maintenance de la plateforme, l'hébergement sécurisé de vos fichiers pour la livraison automatique, ainsi que les frais techniques d'intégration des opérateurs de Mobile Money et cartes bancaires.
+                </p>
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  L'abonnement mensuel MomoLink Pro est distinct de la commission : il conditionne l'accès à la publication de nouveaux contenus et aux demandes de retrait de fonds (voir Article 4). La page publique du Vendeur et la réception de messages ou de Dons restent accessibles même sans abonnement actif.
                 </p>
               </div>
               <p className="mt-1">
-                Le montant net crédité sur le portefeuille virtuel (Wallet) du Vendeur correspond à la formule : <code className="font-mono bg-light-bg-surface px-2 py-1 rounded text-accent-corail font-semibold">Montant payé par l'acheteur - 10%</code>.
+                Le montant net crédité sur le portefeuille virtuel (Wallet) du Vendeur correspond à la formule : <code className="font-mono bg-light-bg-surface px-2 py-1 rounded text-accent-corail font-semibold">Montant payé par le Client - 10%</code>.
               </p>
             </div>
 
             {/* Section 4 */}
             <div className="flex flex-col gap-3">
-              <h2 className="font-display text-xl font-semibold text-text-primary">4. Retrait des Fonds (Payouts)</h2>
+              <h2 className="font-display text-xl font-semibold text-text-primary">4. Retrait des Fonds (Payouts) et Abonnement MomoLink Pro</h2>
               <p>
-                Les fonds accumulés à la suite des ventes sont instantanément disponibles sur le Wallet virtuel du Vendeur. Le Vendeur peut demander un retrait vers son compte Mobile Money (Wave, Orange Money, etc.) de son choix à tout moment.
+                Les fonds accumulés à la suite des ventes et des Dons sont instantanément disponibles sur le Wallet virtuel du Vendeur. Le Vendeur peut demander un retrait vers son compte Mobile Money (Wave, Orange Money, MTN, Moov, etc.) de son choix à tout moment, à condition de disposer d'un abonnement MomoLink Pro actif.
               </p>
               <p className="mt-1">
                 Nous nous engageons à valider et transférer les fonds dans les meilleurs délais, généralement en moins de 24 heures ouvrables, après vérification automatique de l'absence d'activité frauduleuse ou de réclamation client en cours.
+              </p>
+              <p className="mt-1">
+                En cas d'expiration de l'abonnement MomoLink Pro, le Vendeur bénéficie d'une période de grâce de 3 jours pour le renouveler. Passé ce délai, la publication de nouveaux contenus et les demandes de retrait sont suspendues et les contenus déjà en ligne peuvent être temporairement archivés jusqu'au renouvellement ; ils sont remis en ligne automatiquement dès la réactivation de l'abonnement. La page publique du Vendeur demeure visible par ses Clients pendant toute cette période.
               </p>
             </div>
 
