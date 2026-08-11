@@ -67,7 +67,9 @@ import {
   Mail,
   Heart,
   Briefcase,
-  ArrowUpDown
+  ArrowUpDown,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -236,6 +238,16 @@ export default function Dashboard() {
   const [salesSortOrder, setSalesSortOrder] = useState<'recent' | 'oldest'>('recent');
   const [salesPage, setSalesPage] = useState(1);
   const SALES_PAGE_SIZE = 10;
+
+  // Lets a creator blank out buyer phone / payment method / reference before sharing their
+  // screen or recording a demo. Remembered across sessions so it doesn't have to be re-armed.
+  const [hideSensitiveSales, setHideSensitiveSales] = useState<boolean>(
+    () => localStorage.getItem('momo_hide_sensitive_sales') === '1'
+  );
+
+  useEffect(() => {
+    localStorage.setItem('momo_hide_sensitive_sales', hideSensitiveSales ? '1' : '0');
+  }, [hideSensitiveSales]);
 
   // Jump back to page 1 whenever a filter/sort changes, so the pagination never
   // lands the creator on an empty page from a previous, wider result set.
@@ -598,6 +610,23 @@ export default function Dashboard() {
     }
   };
 
+  // Sale status pill (green "Payé" for the common case). Tinted rather than solid so it
+  // stays readable in both themes.
+  const getSaleStatusBadge = (status?: string) => {
+    switch (status) {
+      case 'pending':
+        return { label: 'En attente', icon: Clock, className: 'bg-amber-500/15 text-amber-600 border-amber-500/30' };
+      case 'failed':
+        return { label: 'Échoué', icon: X, className: 'bg-red-500/15 text-red-500 border-red-500/30' };
+      default:
+        return {
+          label: 'Payé',
+          icon: Check,
+          className: `bg-emerald-500/15 border-emerald-500/30 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`
+        };
+    }
+  };
+
   // Best-effort payment method for a sale, inferred from its payment_reference.
   // Real Maketou transactions only give us a bare cartId (no operator info in their
   // cart-status response), so those fall back to a generic "Mobile Money" badge —
@@ -656,7 +685,7 @@ export default function Dashboard() {
           // 1. Fetch completed purchases safely without relying on foreign key joins
           const { data: creatorContents, error: contentsErr } = await supabaseClient
             .from('contents')
-            .select('id, title')
+            .select('id, title, thumbnail_url, preview_url')
             .eq('creator_id', profile.id);
 
           if (contentsErr) throw contentsErr;
@@ -679,7 +708,14 @@ export default function Dashboard() {
             const matchedContent = (creatorContents || []).find(c => c.id === p.content_id);
             return {
               ...p,
-              contents: matchedContent ? { creator_id: profile.id, title: matchedContent.title } : undefined
+              contents: matchedContent
+                ? {
+                    creator_id: profile.id,
+                    title: matchedContent.title,
+                    thumbnail_url: matchedContent.thumbnail_url,
+                    preview_url: matchedContent.preview_url
+                  }
+                : undefined
             };
           });
 
@@ -2578,6 +2614,23 @@ export default function Dashboard() {
                   <option value="oldest">Plus ancien d'abord</option>
                 </select>
               </div>
+
+              {/* Desktop only: the columns this hides aren't rendered on mobile anyway. */}
+              <button
+                type="button"
+                onClick={() => setHideSensitiveSales(v => !v)}
+                title={hideSensitiveSales ? 'Afficher les informations client' : 'Masquer les informations client'}
+                aria-pressed={hideSensitiveSales}
+                className={`hidden md:flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold shrink-0 cursor-pointer transition-colors ${
+                  hideSensitiveSales
+                    ? 'border-accent-corail bg-accent-corail/5 text-accent-corail'
+                    : `${themeStyles.border} ${themeStyles.textSecondary} hover:border-accent-corail/50`
+                }`}
+                id="sales-privacy-toggle"
+              >
+                {hideSensitiveSales ? <EyeOff size={14} /> : <Eye size={14} />}
+                <span className="whitespace-nowrap">{hideSensitiveSales ? 'Masqué' : 'Masquer'}</span>
+              </button>
             </div>
 
             {/* Sales List Table */}
@@ -2593,18 +2646,24 @@ export default function Dashboard() {
                   <table className="min-w-full divide-y divide-border-custom">
                     <thead className="bg-black/5">
                       <tr>
-                        <th className={`px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Article</th>
-                        <th className={`px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Client (Tel)</th>
-                        <th className={`px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Moyen de paiement</th>
-                        <th className={`px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Référence</th>
-                        <th className={`px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Date</th>
-                        <th className={`px-5 py-4.5 text-right text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Revenu Net</th>
+                        <th className={`px-4 md:px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Produit</th>
+                        {/* Buyer/transaction detail columns are desktop-only: on a phone they
+                            forced a cramped horizontal scroll. The mobile view keeps the product
+                            (cover + title + amount) and the status pill, nothing else. */}
+                        <th className={`hidden md:table-cell px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Client (Tel)</th>
+                        <th className={`hidden md:table-cell px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Moyen de paiement</th>
+                        <th className={`hidden md:table-cell px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Référence</th>
+                        <th className={`hidden md:table-cell px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Date</th>
+                        <th className={`hidden md:table-cell px-5 py-4.5 text-right text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Revenu Net</th>
+                        <th className={`px-4 md:px-5 py-4.5 text-right text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Statut</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${themeStyles.border}`}>
                       <AnimatePresence>
                         {paginatedSalesList.map((p, idx) => {
                           const title = p.contents?.title || p.title || 'Guide exclusif';
+                          const cover = p.contents?.thumbnail_url || p.contents?.preview_url || null;
+                          const statusBadge = getSaleStatusBadge(p.status);
                           const dateString = p.created_at ? new Date(p.created_at).toLocaleDateString('fr-FR', {
                             day: 'numeric',
                             month: 'short',
@@ -2619,21 +2678,41 @@ export default function Dashboard() {
                               transition={{ duration: 0.2, delay: idx * 0.03 }}
                               className="hover:bg-black/5 transition-colors animate-fade-in"
                             >
-                              <td className="px-5 py-4 whitespace-nowrap">
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  <div className="w-8 h-8 rounded-lg bg-accent-corail/10 text-accent-corail flex items-center justify-center shrink-0">
-                                    <ShoppingBag size={14} />
+                              <td className="px-4 md:px-5 py-3.5 md:py-4">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className={`w-11 h-11 md:w-10 md:h-10 rounded-[10px] overflow-hidden shrink-0 border ${themeStyles.border} bg-accent-corail/10 flex items-center justify-center`}>
+                                    {cover ? (
+                                      <img
+                                        src={cover}
+                                        alt=""
+                                        referrerPolicy="no-referrer"
+                                        className="w-full h-full object-cover"
+                                      />
+                                    ) : (
+                                      <ShoppingBag size={16} className="text-accent-corail" />
+                                    )}
                                   </div>
-                                  <span className={`text-xs font-semibold ${themeStyles.textPrimary} truncate block max-w-[220px]`} title={title}>
-                                    {title}
-                                  </span>
+                                  <div className="flex flex-col min-w-0">
+                                    <span
+                                      className={`text-xs font-semibold ${themeStyles.textPrimary} truncate max-w-[150px] sm:max-w-[220px]`}
+                                      title={title}
+                                    >
+                                      {title}
+                                    </span>
+                                    {/* The amount lives here on mobile, where its own column is hidden. */}
+                                    <span className={`md:hidden text-[11px] font-mono mt-0.5 ${themeStyles.textSecondary}`}>
+                                      {(p.creator_net_amount_fcfa || 0).toLocaleString()} FCFA
+                                    </span>
+                                  </div>
                                 </div>
                               </td>
-                              <td className={`px-5 py-4 whitespace-nowrap text-xs font-mono font-medium ${themeStyles.textPrimary}`}>
-                                {p.buyer_phone || 'Non renseigné'}
+                              <td className={`hidden md:table-cell px-5 py-4 whitespace-nowrap text-xs font-mono font-medium ${themeStyles.textPrimary}`}>
+                                {hideSensitiveSales ? '••• ••• •••' : (p.buyer_phone || 'Non renseigné')}
                               </td>
-                              <td className="px-5 py-4 whitespace-nowrap">
-                                {(() => {
+                              <td className="hidden md:table-cell px-5 py-4 whitespace-nowrap">
+                                {hideSensitiveSales ? (
+                                  <span className={`text-xs font-mono ${themeStyles.textSecondary}`}>••••••</span>
+                                ) : (() => {
                                   const method = getSalePaymentMethod(p.payment_reference);
                                   return (
                                     <div className="flex items-center gap-2">
@@ -2645,15 +2724,21 @@ export default function Dashboard() {
                                   );
                                 })()}
                               </td>
-                              <td className={`px-5 py-4 whitespace-nowrap text-xs font-mono ${themeStyles.textSecondary}`}>
-                                {p.payment_reference || 'REF-MOMO'}
+                              <td className={`hidden md:table-cell px-5 py-4 whitespace-nowrap text-xs font-mono ${themeStyles.textSecondary}`}>
+                                {hideSensitiveSales ? '••••••••••••' : (p.payment_reference || 'REF-MOMO')}
                               </td>
-                              <td className={`px-5 py-4 whitespace-nowrap text-xs ${themeStyles.textSecondary}`}>
+                              <td className={`hidden md:table-cell px-5 py-4 whitespace-nowrap text-xs ${themeStyles.textSecondary}`}>
                                 {dateString}
                               </td>
-                              <td className="px-5 py-4 whitespace-nowrap text-right">
+                              <td className="hidden md:table-cell px-5 py-4 whitespace-nowrap text-right">
                                 <span className={`text-xs font-bold ${isDarkMode ? 'text-success-gold' : 'text-neutral-950'} font-mono`}>
                                   +{(p.creator_net_amount_fcfa || 0).toLocaleString()} F
+                                </span>
+                              </td>
+                              <td className="px-4 md:px-5 py-3.5 md:py-4 whitespace-nowrap text-right">
+                                <span className={`inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-full border text-[11px] font-bold ${statusBadge.className}`}>
+                                  <statusBadge.icon size={12} strokeWidth={3} className="shrink-0" />
+                                  {statusBadge.label}
                                 </span>
                               </td>
                             </motion.tr>
