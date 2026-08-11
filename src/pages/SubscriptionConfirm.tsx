@@ -154,7 +154,7 @@ export default function SubscriptionConfirm() {
             <div className="flex flex-col gap-2">
               <h1 className="font-display text-xl font-bold tracking-tight">Validation de l'abonnement...</h1>
               <p className="text-sm text-neutral-400 max-w-[320px] leading-relaxed">
-                Nous vérifions votre paiement de 5 000 FCFA auprès de l'opérateur. Veuillez patienter.
+                Nous vérifions votre paiement de 4 990 FCFA auprès de l'opérateur. Veuillez patienter.
               </p>
             </div>
             

@@ -26,6 +26,7 @@ export interface CreatorProfile {
   store_quota?: number;
   is_premium?: boolean;
   premium_expires_at?: string | null;
+  is_test_account?: boolean;
 }
 
 export interface Content {
@@ -71,7 +72,7 @@ export interface Withdrawal {
   id: string;
   creator_id: string;
   amount_requested: number;
-  payout_provider: string; // mtn, orange, moov, wave, paypal, mixbyyass
+  payout_provider: string; // mtn, orange, moov, wave, mixbyyass
   payout_phone_number: string;
   status: 'pending' | 'approved' | 'paid' | 'rejected';
   requested_at: string;

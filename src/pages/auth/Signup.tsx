@@ -99,7 +99,7 @@ export default function Signup() {
         className="flex items-center gap-2.5 mb-8 z-10 opacity-90 hover:opacity-100 transition-opacity"
       >
         <img
-          src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png"
+          src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
           alt="MomoLink Logo"
           className="h-9 w-9 object-contain rounded-lg"
         />

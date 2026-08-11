@@ -143,10 +143,10 @@ export default function Onboarding() {
 
   // Safe layout styles
   const providerDetails = {
-    wave: { name: 'Wave', color: 'bg-sky-500/10 text-sky-400 border-sky-500/30' },
-    orange: { name: 'Orange Money', color: 'bg-orange-500/10 text-orange-400 border-orange-500/30' },
-    mtn: { name: 'MTN MoMo', color: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30' },
-    moov: { name: 'Moov Money', color: 'bg-blue-500/10 text-blue-400 border-blue-500/30' },
+    wave: { name: 'Wave', color: 'bg-sky-500/10 text-sky-400 border-sky-500/30', logo: '/payment-icons/wave.png' },
+    orange: { name: 'Orange Money', color: 'bg-orange-500/10 text-orange-400 border-orange-500/30', logo: '/payment-icons/orange-money.png' },
+    mtn: { name: 'MTN MoMo', color: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30', logo: '/payment-icons/mtn-money.jpg' },
+    moov: { name: 'Moov Money', color: 'bg-blue-500/10 text-blue-400 border-blue-500/30', logo: '/payment-icons/moov-money.png' },
   };
 
   const currentHost = window.location.origin;
@@ -425,19 +425,26 @@ export default function Onboarding() {
                         key={prov}
                         type="button"
                         onClick={() => setPayoutProvider(prov)}
-                        className={`p-3 rounded-[12px] border text-left flex flex-col justify-between h-20 transition-all duration-200 ${
+                        className={`p-3 rounded-[12px] border text-left flex items-center gap-3 h-20 transition-all duration-200 ${
                           payoutProvider === prov
                             ? 'border-accent-corail bg-accent-corail/5 text-text-primary shadow-md'
                             : 'border-border-custom bg-bg-primary/30 text-text-secondary hover:border-text-secondary/40'
                         }`}
                       >
-                        <span className="text-xs font-bold capitalize">{prov}</span>
-                        <span className="text-[10px] opacity-85">
-                          {prov === 'wave' && 'Afrique de l’Ouest'}
-                          {prov === 'orange' && 'Orange Money'}
-                          {prov === 'mtn' && 'MTN MoMo'}
-                          {prov === 'moov' && 'Moov Money'}
-                        </span>
+                        <img
+                          src={providerDetails[prov].logo}
+                          alt={providerDetails[prov].name}
+                          className="h-9 w-9 object-contain rounded-md bg-white p-1 shrink-0"
+                        />
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold">{providerDetails[prov].name}</span>
+                          <span className="text-[10px] opacity-85">
+                            {prov === 'wave' && 'Afrique de l’Ouest'}
+                            {prov === 'orange' && 'Orange Money'}
+                            {prov === 'mtn' && 'MTN MoMo'}
+                            {prov === 'moov' && 'Moov Money'}
+                          </span>
+                        </div>
                       </button>
                     ))}
                   </div>

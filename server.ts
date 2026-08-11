@@ -33,6 +33,7 @@ process.env.VITE_ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.VITE_ADMIN
 
 const app = express();
 const PORT = 3000;
+const SUBSCRIPTION_PRICE_FCFA = 4990;
 
 app.use(express.json());
 
@@ -76,6 +77,61 @@ const supabaseAdmin = isSupabaseConfigured && supabaseServiceRoleKey
 
 console.log(`[Server] Supabase configuration status: ${isSupabaseConfigured ? 'CONNECTED' : 'DEMO MODE'}`);
 console.log(`[Server] Supabase Admin status: ${supabaseAdmin !== supabase ? 'SERVICE ROLE ENABLED' : 'FALLBACK MODE'}`);
+
+// Resolves creators flagged as `is_test_account` (fake promo-video data) and the content
+// they own, so admin-facing revenue aggregates (KPIs, chart, transactions...) can exclude
+// them without touching the creator's own dashboard, which shows the fake numbers normally.
+async function getTestAccountIds(): Promise<{ creatorIds: Set<string>; contentIds: Set<string> }> {
+  if (!supabaseAdmin) return { creatorIds: new Set(), contentIds: new Set() };
+  try {
+    const { data: testCreators } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('id')
+      .eq('is_test_account', true);
+
+    const creatorIds = new Set((testCreators || []).map((c: any) => c.id as string));
+    if (creatorIds.size === 0) return { creatorIds, contentIds: new Set() };
+
+    const { data: testContents } = await supabaseAdmin
+      .from('contents')
+      .select('id')
+      .in('creator_id', Array.from(creatorIds));
+
+    const contentIds = new Set((testContents || []).map((c: any) => c.id as string));
+    return { creatorIds, contentIds };
+  } catch (err) {
+    console.warn('[Server] Failed to resolve test account ids:', err);
+    return { creatorIds: new Set(), contentIds: new Set() };
+  }
+}
+
+// Generates a payment reference that looks like a real Mobile Money one (e.g. "WAVE-482913-MOMO"),
+// so fake purchases never visibly stand out on a creator's own dashboard (which displays this
+// column as-is). The `is_fake` column — not this string — is what admin tooling uses internally
+// to identify/filter/delete fake data.
+function generateFakePaymentReference(provider?: string | null): string {
+  const prefixes: Record<string, string> = { wave: 'WAVE', orange: 'OM', mtn: 'MTN', moov: 'MOOV' };
+  const prefix = prefixes[(provider || 'wave').toLowerCase()] || 'WAVE';
+  const num = Math.floor(100000 + Math.random() * 899999);
+  return `${prefix}-${num}-MOMO`;
+}
+
+// Picks a past date biased toward "now" (recency-weighted), so a batch of generated fake
+// transactions reads as organic growth (few sales early on, more as time approaches today)
+// instead of a flat, obviously-random spread. Also lightly favors weekends.
+function randomGrowthDate(maxDaysAgo: number): string {
+  let daysAgo = maxDaysAgo * Math.pow(Math.random(), 2);
+  const candidate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+  const isWeekend = candidate.getDay() === 0 || candidate.getDay() === 6;
+  if (!isWeekend && Math.random() < 0.3) {
+    // Re-roll once toward the nearest weekend-ish day for a mild weekend bump
+    daysAgo = Math.max(0, daysAgo - (Math.random() * 2));
+  }
+  const finalDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+  // Spread across realistic waking hours instead of midnight-heavy clustering
+  finalDate.setHours(8 + Math.floor(Math.random() * 15), Math.floor(Math.random() * 60), Math.floor(Math.random() * 60));
+  return finalDate.toISOString();
+}
 
 
 // ==========================================
@@ -1211,7 +1267,7 @@ app.post('/api/subscription/create-cart', async (req, res) => {
   }
 
   try {
-    const amount = 5000;
+    const amount = SUBSCRIPTION_PRICE_FCFA;
     const productDocumentId = process.env.MAKETOU_PRODUCT_ID || '';
     
     const firstName = buyerFirstName || 'Abonné';
@@ -1368,7 +1424,7 @@ app.get('/api/subscription/check-status', async (req, res) => {
       // Create subscription in local db
       serverDb.addSubscription({
         creatorId: creatorId as string,
-        amountPaid: 5000,
+        amountPaid: SUBSCRIPTION_PRICE_FCFA,
         currency: 'XOF',
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
@@ -1403,7 +1459,7 @@ app.get('/api/subscription/check-status', async (req, res) => {
             .from('subscriptions')
             .insert({
               creator_id: creatorId,
-              amount_paid: 5000,
+              amount_paid: SUBSCRIPTION_PRICE_FCFA,
               currency: 'XOF',
               start_date: startDate.toISOString(),
               end_date: endDate.toISOString(),
@@ -1582,7 +1638,7 @@ app.get('/api/subscription/status', async (req, res) => {
       activeSub = {
         id: 'sub_profile_premium',
         creator_id: creatorId,
-        amount_paid: 5000,
+        amount_paid: SUBSCRIPTION_PRICE_FCFA,
         currency: 'XOF',
         start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
         end_date: premiumExpiresAt || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
@@ -2022,6 +2078,8 @@ app.get('/api/admin/kpis', async (req, res) => {
 
     if (supabaseAdmin) {
       try {
+        const { contentIds: testContentIds } = await getTestAccountIds();
+
         // Creators
         const { count: activeCreators, error: err1 } = await supabaseAdmin
           .from('creator_profiles')
@@ -2031,17 +2089,17 @@ app.get('/api/admin/kpis', async (req, res) => {
         activeCreatorsCount = activeCreators || 0;
 
         // Platform monthly earnings & total transaction volume
+        // (excludes purchases of content belonging to `is_test_account` creators — fake promo-video data)
         const { data: monthPurchases, error: err2 } = await supabaseAdmin
           .from('purchases')
-          .select('commission_amount_fcfa, amount_paid_fcfa')
+          .select('commission_amount_fcfa, amount_paid_fcfa, content_id')
           .eq('status', 'completed')
           .gte('created_at', startOfMonthStr);
         if (err2) throw err2;
 
-        if (monthPurchases) {
-          platformEarnings = monthPurchases.reduce((sum, p) => sum + (p.commission_amount_fcfa || 0), 0);
-          totalVolume = monthPurchases.reduce((sum, p) => sum + (p.amount_paid_fcfa || 0), 0);
-        }
+        const realMonthPurchases = (monthPurchases || []).filter(p => !testContentIds.has(p.content_id));
+        platformEarnings = realMonthPurchases.reduce((sum, p) => sum + (p.commission_amount_fcfa || 0), 0);
+        totalVolume = realMonthPurchases.reduce((sum, p) => sum + (p.amount_paid_fcfa || 0), 0);
 
         // Withdrawals in pending status
         const { count: pendingWithdrawals, error: err3 } = await supabaseAdmin
@@ -2258,18 +2316,22 @@ app.get('/api/admin/chart', async (req, res) => {
 
     if (supabaseAdmin) {
       try {
+        const { contentIds: testContentIds } = await getTestAccountIds();
+
         const { data: purchases, error: err1 } = await supabaseAdmin
           .from('purchases')
-          .select('commission_amount_fcfa, created_at')
+          .select('commission_amount_fcfa, created_at, content_id')
           .eq('status', 'completed')
           .gte('created_at', startDateStr)
           .lte('created_at', endDateStr);
         if (err1) throw err1;
 
-        (purchases || []).forEach(p => {
-          const idx = findBucketIndex(new Date(p.created_at));
-          if (idx >= 0) buckets[idx].revenu += p.commission_amount_fcfa || 0;
-        });
+        (purchases || [])
+          .filter(p => !testContentIds.has(p.content_id))
+          .forEach(p => {
+            const idx = findBucketIndex(new Date(p.created_at));
+            if (idx >= 0) buckets[idx].revenu += p.commission_amount_fcfa || 0;
+          });
       } catch (dbErr) {
         console.warn('[Server] Supabase query failed for chart, falling back to mock data:', dbErr);
         usedFallback = true;
@@ -2297,16 +2359,20 @@ app.get('/api/admin/chart', async (req, res) => {
 app.get('/api/admin/creators', async (req, res) => {
   try {
     const search = (req.query.search as string || '').toLowerCase().trim();
-    
+    const testOnly = req.query.testOnly === 'true';
+
     let resultCreators: any[] = [];
     let usedFallback = false;
 
     if (supabaseAdmin) {
       try {
-        const { data: creators, error } = await supabaseAdmin
+        let query = supabaseAdmin
           .from('creator_profiles')
           .select('*')
           .order('created_at', { ascending: false });
+        if (testOnly) query = query.eq('is_test_account', true);
+
+        const { data: creators, error } = await query;
 
         if (error) throw error;
         resultCreators = creators || [];
@@ -2318,6 +2384,7 @@ app.get('/api/admin/creators', async (req, res) => {
 
     if (!supabaseAdmin || usedFallback) {
       resultCreators = [...serverDb.getCreators()].sort((a, b) => b.created_at.localeCompare(a.created_at));
+      if (testOnly) resultCreators = resultCreators.filter((c: any) => c.is_test_account);
     }
 
     // Build stats for each creator
@@ -2683,7 +2750,7 @@ app.get('/api/admin/creators/:id/details', async (req, res) => {
       subscriptions = [{
         id: 'sub_profile_premium',
         creator_id: id,
-        amount_paid: 5000,
+        amount_paid: SUBSCRIPTION_PRICE_FCFA,
         currency: 'XOF',
         start_date: creator.created_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
         end_date: creator.premium_expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
@@ -2788,6 +2855,12 @@ app.post('/api/admin/withdrawals/:id/pay', async (req, res) => {
 
     if (!withdrawal) {
       return res.status(404).json({ error: 'Demande de retrait introuvable.' });
+    }
+
+    // Safety net: never send real money against a `is_test_account` fake balance,
+    // even if a test withdrawal request somehow made it into the pending queue.
+    if (withdrawal.creator_profiles?.is_test_account) {
+      return res.status(400).json({ error: 'Ce compte est un compte de test : aucun paiement réel ne peut être envoyé.' });
     }
 
     const nowStr = new Date().toISOString();
@@ -2954,7 +3027,7 @@ app.get('/api/admin/subscriptions', async (req, res) => {
           const endDate = new Date(expiryDateStr);
           daysRemaining = Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
           if (amountPaid === 0) {
-            amountPaid = 5000;
+            amountPaid = SUBSCRIPTION_PRICE_FCFA;
           }
         }
 
@@ -2984,7 +3057,7 @@ app.get('/api/admin/subscriptions', async (req, res) => {
           const endDate = new Date(expiryDateStr);
           daysRemaining = Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
           if (amountPaid === 0) {
-            amountPaid = 5000;
+            amountPaid = SUBSCRIPTION_PRICE_FCFA;
           }
         }
 
@@ -2999,7 +3072,8 @@ app.get('/api/admin/subscriptions', async (req, res) => {
         status: subStatus,
         expiryDate: expiryDateStr,
         daysRemaining,
-        amountPaid
+        amountPaid,
+        is_test_account: !!creator.is_test_account
       };
     }));
 
@@ -3031,32 +3105,38 @@ app.get('/api/admin/transactions', async (req, res) => {
 
     if (supabaseAdmin) {
       // 1. Fetch purchases
+      // (`is_test_account` is fetched through the embed so fake promo-video purchases/subscriptions
+      // can be excluded below — they must never appear in real revenue reporting/CSV exports)
       const { data: purchases } = await supabaseAdmin
         .from('purchases')
-        .select('*, contents(title, creator_profiles(display_name, username, avatar_url))')
+        .select('*, contents(title, creator_profiles(display_name, username, avatar_url, is_test_account))')
         .order('created_at', { ascending: false });
 
-      const purchaseTransactions = (purchases || []).map(p => ({
-        id: p.id,
-        date: p.created_at,
-        type: 'purchase',
-        creatorName: p.contents?.creator_profiles?.display_name || 'Inconnu',
-        creatorUsername: p.contents?.creator_profiles?.username || 'inconnu',
-        creatorAvatar: p.contents?.creator_profiles?.avatar_url || '',
-        buyerEmail: '***' + (p.buyer_phone ? p.buyer_phone.slice(-4) : '') + '@momo.link',
-        amount: p.amount_paid_fcfa,
-        commission: p.commission_amount_fcfa,
-        status: p.status, // completed, pending, failed
-        providerTxId: p.payment_reference || ''
-      }));
+      const purchaseTransactions = (purchases || [])
+        .filter(p => !p.contents?.creator_profiles?.is_test_account)
+        .map(p => ({
+          id: p.id,
+          date: p.created_at,
+          type: 'purchase',
+          creatorName: p.contents?.creator_profiles?.display_name || 'Inconnu',
+          creatorUsername: p.contents?.creator_profiles?.username || 'inconnu',
+          creatorAvatar: p.contents?.creator_profiles?.avatar_url || '',
+          buyerEmail: '***' + (p.buyer_phone ? p.buyer_phone.slice(-4) : '') + '@momo.link',
+          amount: p.amount_paid_fcfa,
+          commission: p.commission_amount_fcfa,
+          status: p.status, // completed, pending, failed
+          providerTxId: p.payment_reference || ''
+        }));
 
       // 2. Fetch subscriptions
       const { data: subs } = await supabaseAdmin
         .from('subscriptions')
-        .select('*, creator_profiles(display_name, username, avatar_url), transactions(provider_transaction_id)')
+        .select('*, creator_profiles(display_name, username, avatar_url, is_test_account), transactions(provider_transaction_id)')
         .order('created_at', { ascending: false });
 
-      const subTransactions = (subs || []).map(s => ({
+      const subTransactions = (subs || [])
+        .filter(s => !s.creator_profiles?.is_test_account)
+        .map(s => ({
         id: s.id,
         date: s.created_at,
         type: 'subscription',
@@ -3145,23 +3225,28 @@ app.get('/api/admin/recent-purchases', async (req, res) => {
 
     if (supabaseAdmin) {
       try {
+        // Over-fetches then slices to 5 after filtering out test-account purchases, so a recent
+        // burst of fake promo-video sales can't push real sales out of this admin activity feed.
         const { data: purchases, error: err1 } = await supabaseAdmin
           .from('purchases')
-          .select('*, contents(title, creator_profiles(display_name, username))')
+          .select('*, contents(title, creator_profiles(display_name, username, is_test_account))')
           .order('created_at', { ascending: false })
-          .limit(5);
+          .limit(20);
         if (err1) throw err1;
 
-        recentPurchases = (purchases || []).map(p => ({
-          id: p.id,
-          createdAt: p.created_at,
-          creatorName: p.contents?.creator_profiles?.display_name || 'Inconnu',
-          contentTitle: p.contents?.title || 'Contenu exclusif',
-          buyerEmail: '***' + (p.buyer_phone ? p.buyer_phone.slice(-4) : '') + '@momo.link',
-          amountPaid: p.amount_paid_fcfa,
-          commissionAmount: p.commission_amount_fcfa,
-          status: p.status
-        }));
+        recentPurchases = (purchases || [])
+          .filter(p => !p.contents?.creator_profiles?.is_test_account)
+          .slice(0, 5)
+          .map(p => ({
+            id: p.id,
+            createdAt: p.created_at,
+            creatorName: p.contents?.creator_profiles?.display_name || 'Inconnu',
+            contentTitle: p.contents?.title || 'Contenu exclusif',
+            buyerEmail: '***' + (p.buyer_phone ? p.buyer_phone.slice(-4) : '') + '@momo.link',
+            amountPaid: p.amount_paid_fcfa,
+            commissionAmount: p.commission_amount_fcfa,
+            status: p.status
+          }));
       } catch (dbErr) {
         console.warn('[Server] Supabase query failed for recent purchases, falling back to mock data:', dbErr);
         usedFallback = true;
@@ -3447,6 +3532,607 @@ app.post('/api/admin/creators/:id/grant-premium', async (req, res) => {
   }
 });
 
+// 19. POST /api/admin/creators/:id/seed-test-data -> generate fake purchases/donations for a `is_test_account` creator
+// Only works on accounts explicitly flagged is_test_account=true, so this can never inject fake
+// money into a real creator's balance or into the platform's real revenue figures.
+const FAKE_DONOR_NAMES = [
+  'Aïcha D.', 'Moussa K.', 'Fatou S.', 'Ibrahim T.', 'Awa N.', 'Yao B.',
+  'Mariam C.', 'Kofi A.', 'Adjoa L.', 'Sekou M.', 'Nadège P.', 'Kwame O.'
+];
+
+app.post('/api/admin/creators/:id/seed-test-data', async (req, res) => {
+  const { id } = req.params;
+  const purchasesCount = Math.min(200, Math.max(0, Number(req.body?.purchasesCount ?? 15)));
+  const donationsCount = Math.min(200, Math.max(0, Number(req.body?.donationsCount ?? 8)));
+  const daysRange = Math.min(365, Math.max(1, Number(req.body?.daysRange ?? 30)));
+
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: 'Supabase non configuré : impossible de générer des données de test.' });
+  }
+
+  try {
+    const { data: creator, error: creatorErr } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('id, is_test_account, payout_provider')
+      .eq('id', id)
+      .maybeSingle();
+    if (creatorErr) throw creatorErr;
+    if (!creator) return res.status(404).json({ error: 'Créateur introuvable.' });
+    if (!creator.is_test_account) {
+      return res.status(403).json({ error: "Ce créateur n'est pas marqué comme compte de test. Activez `is_test_account` avant de générer de fausses données." });
+    }
+
+    const { data: contents, error: contentsErr } = await supabaseAdmin
+      .from('contents')
+      .select('id, price_fcfa')
+      .eq('creator_id', id)
+      .eq('status', 'published');
+    if (contentsErr) throw contentsErr;
+
+    if (purchasesCount > 0 && (!contents || contents.length === 0)) {
+      return res.status(400).json({ error: "Ce créateur n'a aucun contenu publié : ajoutez au moins un contenu avant de générer de fausses ventes." });
+    }
+
+    const fakePurchases = Array.from({ length: purchasesCount }).map(() => {
+      const content = contents![Math.floor(Math.random() * contents!.length)];
+      const amount = content.price_fcfa;
+      const commission = Math.round(amount * 0.18);
+      return {
+        buyer_phone: `+2289${Math.floor(1000000 + Math.random() * 8999999)}`,
+        content_id: content.id,
+        status: 'completed',
+        amount_paid_fcfa: amount,
+        commission_amount_fcfa: commission,
+        creator_net_amount_fcfa: amount - commission,
+        payment_reference: generateFakePaymentReference(creator.payout_provider),
+        is_fake: true,
+        created_at: randomGrowthDate(daysRange)
+      };
+    });
+
+    const fakeDonations = Array.from({ length: donationsCount }).map(() => {
+      const amount = [1000, 1500, 2000, 2500, 3000, 5000][Math.floor(Math.random() * 6)];
+      const commission = Math.round(amount * 0.18);
+      return {
+        creator_id: id,
+        donor_name: FAKE_DONOR_NAMES[Math.floor(Math.random() * FAKE_DONOR_NAMES.length)],
+        donor_email: null,
+        donor_message: null,
+        status: 'completed',
+        amount_fcfa: amount,
+        commission_amount_fcfa: commission,
+        creator_net_amount_fcfa: amount - commission,
+        payment_reference: generateFakePaymentReference(creator.payout_provider),
+        is_fake: true,
+        created_at: randomGrowthDate(daysRange)
+      };
+    });
+
+    if (fakePurchases.length > 0) {
+      const { error: insertPurchasesErr } = await supabaseAdmin.from('purchases').insert(fakePurchases);
+      if (insertPurchasesErr) throw insertPurchasesErr;
+    }
+
+    if (fakeDonations.length > 0) {
+      const { error: insertDonationsErr } = await supabaseAdmin.from('donations').insert(fakeDonations);
+      if (insertDonationsErr) throw insertDonationsErr;
+    }
+
+    return res.json({
+      success: true,
+      purchasesCreated: fakePurchases.length,
+      donationsCreated: fakeDonations.length
+    });
+  } catch (err: any) {
+    console.error('[Server] Seed test data error:', err);
+    return res.status(500).json({ error: err.message || 'Erreur lors de la génération des données de test.' });
+  }
+});
+
+// 20. POST /api/admin/test-accounts -> create a brand new test creator account (auth user + first boutique) in one step
+app.post('/api/admin/test-accounts', async (req, res) => {
+  const { email, password, username, display_name } = req.body || {};
+
+  if (!email || !password || !username || !display_name) {
+    return res.status(400).json({ error: 'Champs requis : email, password, username, display_name.' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères.' });
+  }
+  if (!/^[a-z0-9_]{3,30}$/.test(username.toLowerCase())) {
+    return res.status(400).json({ error: "Nom d'utilisateur invalide (3-30 caractères, lettres/chiffres/underscore)." });
+  }
+
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: 'Supabase non configuré : impossible de créer un compte de test.' });
+  }
+
+  try {
+    const { data: existingUsername } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('id')
+      .eq('username', username.toLowerCase())
+      .maybeSingle();
+    if (existingUsername) {
+      return res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris." });
+    }
+
+    const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true
+    });
+    if (createErr) {
+      if (String(createErr.message || '').toLowerCase().includes('already')) {
+        return res.status(400).json({ error: 'Un compte existe déjà avec cet email. Utilisez plutôt "Lier un compte existant".' });
+      }
+      throw createErr;
+    }
+
+    const userId = created.user.id;
+
+    const { data: profile, error: profileErr } = await supabaseAdmin
+      .from('creator_profiles')
+      .insert({
+        user_id: userId,
+        username: username.toLowerCase(),
+        display_name,
+        bio: '',
+        payout_phone_number: '+22900000000',
+        payout_provider: 'wave',
+        status: 'active',
+        is_test_account: true,
+        is_premium: true,
+        premium_expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
+      })
+      .select()
+      .single();
+
+    if (profileErr) {
+      // Roll back the auth user so we don't leave an orphaned account behind
+      await supabaseAdmin.auth.admin.deleteUser(userId);
+      throw profileErr;
+    }
+
+    return res.json({ success: true, creator: profile });
+  } catch (err: any) {
+    console.error('[Server] Create test account error:', err);
+    return res.status(500).json({ error: err.message || 'Erreur lors de la création du compte de test.' });
+  }
+});
+
+// 21. POST /api/admin/creators/:id/toggle-test-account -> flip is_test_account on an existing creator
+app.post('/api/admin/creators/:id/toggle-test-account', async (req, res) => {
+  const { id } = req.params;
+
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: 'Supabase non configuré.' });
+  }
+
+  try {
+    const { data: creator, error: fetchErr } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('is_test_account')
+      .eq('id', id)
+      .maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!creator) return res.status(404).json({ error: 'Créateur introuvable.' });
+
+    const { data: updated, error: updateErr } = await supabaseAdmin
+      .from('creator_profiles')
+      .update({ is_test_account: !creator.is_test_account })
+      .eq('id', id)
+      .select('id, is_test_account')
+      .single();
+    if (updateErr) throw updateErr;
+
+    return res.json({ success: true, is_test_account: updated.is_test_account });
+  } catch (err: any) {
+    console.error('[Server] Toggle test account error:', err);
+    return res.status(500).json({ error: err.message || 'Erreur lors du changement de statut.' });
+  }
+});
+
+// 22. POST /api/admin/creators/:id/fake-purchase -> create ONE fake purchase at a precise date/time, `is_test_account` only
+app.post('/api/admin/creators/:id/fake-purchase', async (req, res) => {
+  const { id } = req.params;
+  const { contentId, createdAt } = req.body || {};
+
+  if (!contentId || !createdAt) {
+    return res.status(400).json({ error: 'Champs requis : contentId, createdAt.' });
+  }
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: 'Supabase non configuré.' });
+  }
+
+  try {
+    const { data: creator, error: creatorErr } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('id, is_test_account, payout_provider')
+      .eq('id', id)
+      .maybeSingle();
+    if (creatorErr) throw creatorErr;
+    if (!creator) return res.status(404).json({ error: 'Créateur introuvable.' });
+    if (!creator.is_test_account) {
+      return res.status(403).json({ error: "Ce créateur n'est pas un compte de test." });
+    }
+
+    const { data: content, error: contentErr } = await supabaseAdmin
+      .from('contents')
+      .select('id, price_fcfa, creator_id')
+      .eq('id', contentId)
+      .maybeSingle();
+    if (contentErr) throw contentErr;
+    if (!content || content.creator_id !== id) {
+      return res.status(400).json({ error: "Ce contenu n'appartient pas à ce créateur." });
+    }
+
+    const amount = content.price_fcfa;
+    const commission = Math.round(amount * 0.18);
+
+    const { data: purchase, error: insertErr } = await supabaseAdmin
+      .from('purchases')
+      .insert({
+        buyer_phone: `+2289${Math.floor(1000000 + Math.random() * 8999999)}`,
+        content_id: contentId,
+        status: 'completed',
+        amount_paid_fcfa: amount,
+        commission_amount_fcfa: commission,
+        creator_net_amount_fcfa: amount - commission,
+        payment_reference: generateFakePaymentReference(creator.payout_provider),
+        is_fake: true,
+        created_at: new Date(createdAt).toISOString()
+      })
+      .select()
+      .single();
+    if (insertErr) throw insertErr;
+
+    return res.json({ success: true, purchase });
+  } catch (err: any) {
+    console.error('[Server] Fake purchase error:', err);
+    return res.status(500).json({ error: err.message || 'Erreur lors de la création de la vente fictive.' });
+  }
+});
+
+// 23. POST /api/admin/creators/:id/fake-donation -> create ONE fake donation at a precise date/time, `is_test_account` only
+app.post('/api/admin/creators/:id/fake-donation', async (req, res) => {
+  const { id } = req.params;
+  const { amount, donorName, createdAt } = req.body || {};
+
+  const amountNum = Number(amount);
+  if (!amountNum || amountNum < 1000 || !donorName || !createdAt) {
+    return res.status(400).json({ error: 'Champs requis : amount (>= 1000), donorName, createdAt.' });
+  }
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: 'Supabase non configuré.' });
+  }
+
+  try {
+    const { data: creator, error: creatorErr } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('id, is_test_account, payout_provider')
+      .eq('id', id)
+      .maybeSingle();
+    if (creatorErr) throw creatorErr;
+    if (!creator) return res.status(404).json({ error: 'Créateur introuvable.' });
+    if (!creator.is_test_account) {
+      return res.status(403).json({ error: "Ce créateur n'est pas un compte de test." });
+    }
+
+    const commission = Math.round(amountNum * 0.18);
+
+    const { data: donation, error: insertErr } = await supabaseAdmin
+      .from('donations')
+      .insert({
+        creator_id: id,
+        donor_name: donorName,
+        donor_email: null,
+        donor_message: null,
+        status: 'completed',
+        amount_fcfa: amountNum,
+        commission_amount_fcfa: commission,
+        creator_net_amount_fcfa: amountNum - commission,
+        payment_reference: generateFakePaymentReference(creator.payout_provider),
+        is_fake: true,
+        created_at: new Date(createdAt).toISOString()
+      })
+      .select()
+      .single();
+    if (insertErr) throw insertErr;
+
+    return res.json({ success: true, donation });
+  } catch (err: any) {
+    console.error('[Server] Fake donation error:', err);
+    return res.status(500).json({ error: err.message || 'Erreur lors de la création du don fictif.' });
+  }
+});
+
+// 24. POST /api/admin/creators/:id/fake-withdrawal -> create a fake, already-paid withdrawal at a
+// precise date, so the creator's own "Historique des retraits" doesn't stay implausibly empty.
+// Always inserted with status='paid' directly (never 'pending'), so it can never be picked up by
+// the real payout flow — there's nothing for an admin to accidentally approve.
+app.post('/api/admin/creators/:id/fake-withdrawal', async (req, res) => {
+  const { id } = req.params;
+  const { amount, createdAt } = req.body || {};
+
+  const amountNum = Number(amount);
+  if (!amountNum || amountNum < 5000 || !createdAt) {
+    return res.status(400).json({ error: 'Champs requis : amount (>= 5000), createdAt.' });
+  }
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: 'Supabase non configuré.' });
+  }
+
+  try {
+    const { data: creator, error: creatorErr } = await supabaseAdmin
+      .from('creator_profiles')
+      .select('id, is_test_account, payout_provider, payout_phone_number')
+      .eq('id', id)
+      .maybeSingle();
+    if (creatorErr) throw creatorErr;
+    if (!creator) return res.status(404).json({ error: 'Créateur introuvable.' });
+    if (!creator.is_test_account) {
+      return res.status(403).json({ error: "Ce créateur n'est pas un compte de test." });
+    }
+
+    const requestedAt = new Date(createdAt).toISOString();
+
+    const { data: withdrawal, error: insertErr } = await supabaseAdmin
+      .from('withdrawals')
+      .insert({
+        creator_id: id,
+        amount_requested: amountNum,
+        payout_provider: creator.payout_provider || 'wave',
+        payout_phone_number: creator.payout_phone_number || '+22900000000',
+        status: 'paid',
+        is_fake: true,
+        requested_at: requestedAt,
+        processed_at: requestedAt
+      })
+      .select()
+      .single();
+    if (insertErr) throw insertErr;
+
+    return res.json({ success: true, withdrawal });
+  } catch (err: any) {
+    console.error('[Server] Fake withdrawal error:', err);
+    return res.status(500).json({ error: err.message || 'Erreur lors de la création du retrait fictif.' });
+  }
+});
+
+// 25. GET /api/admin/creators/:id/fake-transactions -> list fake (is_fake=true) purchases/donations/withdrawals for a creator
+app.get('/api/admin/creators/:id/fake-transactions', async (req, res) => {
+  const { id } = req.params;
+
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: 'Supabase non configuré.' });
+  }
+
+  try {
+    const { data: contents } = await supabaseAdmin
+      .from('contents')
+      .select('id, title')
+      .eq('creator_id', id);
+    const contentMap = new Map((contents || []).map((c: any) => [c.id, c.title]));
+    const contentIds = (contents || []).map((c: any) => c.id);
+
+    let purchases: any[] = [];
+    if (contentIds.length > 0) {
+      const { data } = await supabaseAdmin
+        .from('purchases')
+        .select('id, content_id, amount_paid_fcfa, created_at')
+        .in('content_id', contentIds)
+        .eq('is_fake', true)
+        .order('created_at', { ascending: false });
+      purchases = (data || []).map((p: any) => ({
+        id: p.id,
+        type: 'purchase',
+        label: contentMap.get(p.content_id) || 'Contenu',
+        amount: p.amount_paid_fcfa,
+        createdAt: p.created_at
+      }));
+    }
+
+    const { data: donationsData } = await supabaseAdmin
+      .from('donations')
+      .select('id, donor_name, amount_fcfa, created_at')
+      .eq('creator_id', id)
+      .eq('is_fake', true)
+      .order('created_at', { ascending: false });
+
+    const donations = (donationsData || []).map((d: any) => ({
+      id: d.id,
+      type: 'donation',
+      label: d.donor_name,
+      amount: d.amount_fcfa,
+      createdAt: d.created_at
+    }));
+
+    const { data: withdrawalsData } = await supabaseAdmin
+      .from('withdrawals')
+      .select('id, amount_requested, requested_at')
+      .eq('creator_id', id)
+      .eq('is_fake', true)
+      .order('requested_at', { ascending: false });
+
+    const withdrawals = (withdrawalsData || []).map((w: any) => ({
+      id: w.id,
+      type: 'withdrawal',
+      label: 'Retrait',
+      amount: w.amount_requested,
+      createdAt: w.requested_at
+    }));
+
+    const combined = [...purchases, ...donations, ...withdrawals].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return res.json(combined);
+  } catch (err: any) {
+    console.error('[Server] Fake transactions list error:', err);
+    return res.status(500).json({ error: err.message || 'Erreur lors de la récupération des transactions fictives.' });
+  }
+});
+
+// 26. DELETE /api/admin/fake-transactions/:type/:id -> delete a single fake purchase, donation or withdrawal
+// Guarded twice: `is_fake` must be true AND the owning creator must be `is_test_account`,
+// so this can never delete a real transaction even by mistake.
+app.delete('/api/admin/fake-transactions/:type/:id', async (req, res) => {
+  const { type, id } = req.params;
+
+  if (type !== 'purchase' && type !== 'donation' && type !== 'withdrawal') {
+    return res.status(400).json({ error: 'Type invalide (purchase, donation ou withdrawal).' });
+  }
+  if (!supabaseAdmin) {
+    return res.status(400).json({ error: 'Supabase non configuré.' });
+  }
+
+  try {
+    if (type === 'purchase') {
+      const { data: purchase, error: fetchErr } = await supabaseAdmin
+        .from('purchases')
+        .select('id, is_fake, content_id, contents(creator_id, creator_profiles(is_test_account))')
+        .eq('id', id)
+        .maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!purchase) return res.status(404).json({ error: 'Vente introuvable.' });
+      if (!purchase.is_fake || !(purchase as any).contents?.creator_profiles?.is_test_account) {
+        return res.status(403).json({ error: 'Cette vente ne peut pas être supprimée (pas une donnée de test).' });
+      }
+      const { error: delErr } = await supabaseAdmin.from('purchases').delete().eq('id', id);
+      if (delErr) throw delErr;
+    } else if (type === 'donation') {
+      const { data: donation, error: fetchErr } = await supabaseAdmin
+        .from('donations')
+        .select('id, is_fake, creator_id, creator_profiles(is_test_account)')
+        .eq('id', id)
+        .maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!donation) return res.status(404).json({ error: 'Don introuvable.' });
+      if (!donation.is_fake || !(donation as any).creator_profiles?.is_test_account) {
+        return res.status(403).json({ error: 'Ce don ne peut pas être supprimé (pas une donnée de test).' });
+      }
+      const { error: delErr } = await supabaseAdmin.from('donations').delete().eq('id', id);
+      if (delErr) throw delErr;
+    } else {
+      const { data: withdrawal, error: fetchErr } = await supabaseAdmin
+        .from('withdrawals')
+        .select('id, is_fake, creator_id, creator_profiles(is_test_account)')
+        .eq('id', id)
+        .maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!withdrawal) return res.status(404).json({ error: 'Retrait introuvable.' });
+      if (!withdrawal.is_fake || !(withdrawal as any).creator_profiles?.is_test_account) {
+        return res.status(403).json({ error: 'Ce retrait ne peut pas être supprimé (pas une donnée de test).' });
+      }
+      const { error: delErr } = await supabaseAdmin.from('withdrawals').delete().eq('id', id);
+      if (delErr) throw delErr;
+    }
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Server] Delete fake transaction error:', err);
+    return res.status(500).json({ error: err.message || 'Erreur lors de la suppression.' });
+  }
+});
+
+
+// ==========================================
+// SOCIAL PREVIEW (OPEN GRAPH) INJECTION
+// ==========================================
+// This is a client-side-only React app: document.title/meta updates set in useEffect
+// never run for link-preview crawlers (WhatsApp, TikTok, Instagram...) since they don't
+// execute JS. For `/:username` boutique pages, we inject OG/Twitter tags server-side
+// into the raw HTML before it's sent, so shared links show the creator's name/bio/avatar.
+
+// Every single-segment path that is a real app route, not a potential username.
+const RESERVED_ROOT_PATHS = new Set([
+  'auth', 'dashboard', 'admin', 'portal', 'legal', 'pay', 'payment',
+  'congrat', 'onboarding', 'api', 'content'
+]);
+
+const USERNAME_PATH_RE = /^\/([a-zA-Z0-9_.]+)\/?$/;
+
+function escapeHtml(str: string) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function getCreatorForOg(username: string) {
+  if (!supabase) return null;
+  const { data } = await supabase
+    .from('creator_profiles')
+    .select('display_name, username, bio, avatar_url')
+    .eq('username', username.toLowerCase())
+    .eq('status', 'active')
+    .maybeSingle();
+  return data;
+}
+
+function injectOgTags(html: string, creator: { display_name: string; username: string; bio: string | null; avatar_url: string | null }, pageUrl: string) {
+  const title = escapeHtml(`${creator.display_name} — contenus exclusifs | MomoLink`);
+  const description = escapeHtml(
+    creator.bio?.trim() || `Découvrez les contenus exclusifs de ${creator.display_name} sur MomoLink.`
+  );
+  const image = creator.avatar_url ? escapeHtml(creator.avatar_url) : '';
+
+  const tags = `
+    <title>${title}</title>
+    <meta name="description" content="${description}" />
+    <meta property="og:type" content="profile" />
+    <meta property="og:title" content="${title}" />
+    <meta property="og:description" content="${description}" />
+    <meta property="og:url" content="${escapeHtml(pageUrl)}" />
+    ${image ? `<meta property="og:image" content="${image}" />` : ''}
+    <meta name="twitter:card" content="${image ? 'summary_large_image' : 'summary'}" />
+    <meta name="twitter:title" content="${title}" />
+    <meta name="twitter:description" content="${description}" />
+    ${image ? `<meta name="twitter:image" content="${image}" />` : ''}
+  `;
+
+  // Strip any existing <title> so ours isn't a duplicate, then inject before </head>.
+  return html
+    .replace(/<title>.*?<\/title>/i, '')
+    .replace('</head>', `${tags}\n  </head>`);
+}
+
+async function maybeServeCreatorOgPage(req: express.Request, res: express.Response, readHtml: () => Promise<string>): Promise<boolean> {
+  const match = USERNAME_PATH_RE.exec(req.path);
+  if (!match) return false;
+
+  const candidate = match[1].toLowerCase();
+  if (RESERVED_ROOT_PATHS.has(candidate)) return false;
+
+  try {
+    const creator = await getCreatorForOg(candidate);
+    if (!creator) return false;
+
+    const html = await readHtml();
+    const pageUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+    res.status(200).set({ 'Content-Type': 'text/html' }).end(injectOgTags(html, creator, pageUrl));
+    return true;
+  } catch (err) {
+    console.error('[Server] OG injection error:', err);
+    return false;
+  }
+}
+
+// On Vercel, this Express app runs as a serverless function (see `api/index.js`) and never
+// calls startServer()/express.static below — static files (including index.html) are served
+// directly by Vercel's edge from the `dist/` build output, per the rewrites in vercel.json.
+// The function's bundle has no filesystem access to that build output, so instead of reading
+// index.html from disk we fetch the already-deployed static copy from the same origin.
+if (process.env.VERCEL) {
+  app.use(async (req, res, next) => {
+    if (req.method !== 'GET') return next();
+    const handled = await maybeServeCreatorOgPage(req, res, async () => {
+      const origin = `${req.protocol}://${req.get('host')}`;
+      const r = await fetch(`${origin}/index.html`);
+      return r.text();
+    });
+    if (!handled) next();
+  });
+}
 
 // ==========================================
 // STATIC ASSETS & VITE INTEGRATION
@@ -3462,16 +4148,29 @@ async function startServer() {
       server: { middlewareMode: true },
       appType: 'spa',
     });
-    
+
+    // Intercept single-segment paths that look like a creator username before Vite's
+    // SPA fallback takes over, so we can inject OG tags into the served index.html.
+    app.use(async (req, res, next) => {
+      if (req.method !== 'GET') return next();
+      const handled = await maybeServeCreatorOgPage(req, res, async () => {
+        const rawHtml = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
+        return vite.transformIndexHtml(req.originalUrl, rawHtml);
+      });
+      if (!handled) next();
+    });
+
     app.use(vite.middlewares);
   } else {
     // Production mode: Serve static output from Vite build
     console.log('[Server] Starting production server...');
     const distPath = path.join(process.cwd(), 'dist');
-    
+
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.get('*', async (req, res) => {
+      const indexPath = path.join(distPath, 'index.html');
+      const handled = await maybeServeCreatorOgPage(req, res, async () => fs.readFileSync(indexPath, 'utf-8'));
+      if (!handled) res.sendFile(indexPath);
     });
   }
 

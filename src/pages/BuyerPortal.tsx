@@ -74,8 +74,8 @@ export default function BuyerPortal() {
 
         <div className="flex items-center gap-2">
           <img 
-            src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
-            alt="MomoLink Logo" 
+            src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+            alt="MomoLink Logo"
             className="h-6 w-6 object-contain rounded-md"
           />
           <span className="font-display font-bold text-sm tracking-tight text-neutral-900">

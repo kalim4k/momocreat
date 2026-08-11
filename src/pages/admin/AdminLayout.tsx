@@ -13,7 +13,8 @@ import {
   FileText,
   Heart,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  FlaskConical
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -67,6 +68,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const navigation = [
     { name: 'Vue d\'ensemble', href: '/admin', icon: LayoutDashboard, section: null as string | null },
     { name: 'Créateurs', href: '/admin/creators', icon: Users, section: 'Modération' },
+    { name: 'Comptes Test', href: '/admin/test-accounts', icon: FlaskConical, section: 'Modération' },
     { name: 'Contenus', href: '/admin/contents', icon: FileText, section: 'Modération' },
     { name: 'Dons & Messages', href: '/admin/donations-messages', icon: Heart, section: 'Modération' },
     { name: 'Retraits', href: '/admin/withdrawals', icon: Wallet, badge: pendingWithdrawalsCount > 0 ? pendingWithdrawalsCount : undefined, section: 'Finances' },
@@ -97,8 +99,8 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       <div className="md:hidden bg-bg-surface border-b border-border-custom px-4 py-3 flex items-center justify-between sticky top-0 z-40">
         <div className="flex items-center gap-3">
           <img 
-            src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
-            alt="MomoLink Logo" 
+            src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+            alt="MomoLink Logo"
             className="h-7 w-7 object-contain rounded-lg"
           />
           <span className="font-bold text-xl tracking-tight text-text-primary">Momo<span className="text-accent-corail">Link</span></span>
@@ -124,8 +126,8 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         <div className={`hidden md:flex items-center ${isAdminSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-6'} py-5 border-b border-border-custom`}>
           <div className={`flex items-center ${isAdminSidebarCollapsed ? 'justify-center' : 'gap-2.5'}`}>
             <img 
-              src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
-              alt="MomoLink Logo" 
+              src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+              alt="MomoLink Logo"
               className="h-7 w-7 object-contain rounded-lg shadow-sm shrink-0"
             />
             {!isAdminSidebarCollapsed && (

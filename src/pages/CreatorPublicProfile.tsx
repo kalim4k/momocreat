@@ -67,6 +67,7 @@ export default function CreatorPublicProfile() {
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const [copied, setCopied] = useState(false);
+  const [totalSales, setTotalSales] = useState(0);
 
   // Donation modal
   const [isDonationModalOpen, setIsDonationModalOpen] = useState(false);
@@ -248,6 +249,19 @@ export default function CreatorPublicProfile() {
 
           if (contentsErr) throw contentsErr;
           setContents(contentsData || []);
+
+          // Social proof: total completed sales across this creator's contents
+          const contentIds = (contentsData || []).map((c) => c.id);
+          if (contentIds.length > 0) {
+            const { count } = await supabase
+              .from('purchases')
+              .select('id', { count: 'exact', head: true })
+              .in('content_id', contentIds)
+              .eq('status', 'completed');
+            setTotalSales(count || 0);
+          } else {
+            setTotalSales(0);
+          }
         } else {
           // Demo fallback
           let profileData: CreatorProfile | null = null;
@@ -346,6 +360,16 @@ export default function CreatorPublicProfile() {
           // Sort DESC
           creatorContents.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
           setContents(creatorContents);
+
+          // Social proof: total completed sales across this creator's contents (demo mode)
+          const contentIds = creatorContents.map((c) => c.id);
+          const localPurchasesStr = localStorage.getItem('momo_local_purchases');
+          const localPurchases: { content_id: string; status: string }[] = localPurchasesStr
+            ? JSON.parse(localPurchasesStr)
+            : [];
+          setTotalSales(
+            localPurchases.filter((p) => contentIds.includes(p.content_id) && p.status === 'completed').length
+          );
         }
       } catch (err: any) {
         console.error('Error fetching creator profile:', err);
@@ -643,7 +667,7 @@ export default function CreatorPublicProfile() {
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-3 flex-wrap">
           <Link to="/" className="flex items-center gap-1.5 opacity-90 hover:opacity-100 transition-opacity">
             <img
-              src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png"
+              src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
               alt="MomoLink Logo"
               className="h-6 w-6 object-contain rounded-md"
             />
@@ -861,9 +885,16 @@ export default function CreatorPublicProfile() {
             </div>
           )}
 
-          {/* Contents Counter Badge */}
-          <div className="px-4 py-1.5 rounded-full bg-white border border-gray-200 text-[11px] font-medium text-gray-500 mt-2">
-            <strong className="text-accent-corail font-semibold">{contents.length}</strong> {contents.length > 1 ? 'contenus exclusifs' : 'contenu exclusif'}
+          {/* Contents Counter Badge + Social Proof */}
+          <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+            <div className="px-4 py-1.5 rounded-full bg-white border border-gray-200 text-[11px] font-medium text-gray-500">
+              <strong className="text-accent-corail font-semibold">{contents.length}</strong> {contents.length > 1 ? 'contenus exclusifs' : 'contenu exclusif'}
+            </div>
+            {totalSales > 0 && (
+              <div className="px-4 py-1.5 rounded-full bg-white border border-gray-200 text-[11px] font-medium text-gray-500">
+                <strong className="text-accent-corail font-semibold">{totalSales}</strong> {totalSales > 1 ? 'ventes réalisées' : 'vente réalisée'}
+              </div>
+            )}
           </div>
 
         </div>
@@ -929,6 +960,11 @@ export default function CreatorPublicProfile() {
                        <h4 className="text-xs font-bold text-neutral-900 line-clamp-2 leading-snug">
                          {content.title}
                        </h4>
+                       {content.description && (
+                         <p className="text-[10px] text-gray-500 line-clamp-2 leading-snug">
+                           {content.description}
+                         </p>
+                       )}
                      </div>
  
                      {/* Bottom Actions bar */}
@@ -1146,14 +1182,14 @@ export default function CreatorPublicProfile() {
                     </form>
                   )}
 
-                  {/* LOADING SIMULATOR & INTEGRATION BANNER */}
+                  {/* PAYMENT REDIRECT LOADING STATE */}
                   {paymentStep === 'loading' && (
                     <div className="py-10 flex flex-col items-center justify-center gap-5 text-center">
                       <div className="relative w-12 h-12 flex items-center justify-center">
                         <span className="absolute inset-0 rounded-full border-4 border-accent-corail/20 animate-ping" />
                         <Loader2 className="animate-spin text-accent-corail h-10 w-10" />
                       </div>
-                      
+
                       <div className="flex flex-col gap-1.5">
                         <h4 className="font-semibold text-sm text-neutral-900">Traitement en cours...</h4>
                         {paymentStatusMessage && (
@@ -1162,7 +1198,7 @@ export default function CreatorPublicProfile() {
                           </div>
                         )}
                         <p className="text-xs text-gray-500 mt-1 max-w-[260px] mx-auto leading-relaxed">
-                          Validation fictive via l'opérateur <strong className="uppercase">{selectedProvider}</strong> en cours.
+                          Connexion sécurisée à votre opérateur <strong className="uppercase">{selectedProvider}</strong>...
                         </p>
                       </div>
                     </div>

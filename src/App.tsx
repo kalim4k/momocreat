@@ -62,6 +62,7 @@ import AdminSubscriptions from './pages/admin/AdminSubscriptions';
 import AdminTransactions from './pages/admin/AdminTransactions';
 import AdminContents from './pages/admin/AdminContents';
 import AdminDonationsMessages from './pages/admin/AdminDonationsMessages';
+import AdminTestAccounts from './pages/admin/AdminTestAccounts';
 import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 import Cgv from './pages/Cgv';
@@ -158,6 +159,7 @@ export default function App() {
             {/* Protected Admin Console Pages */}
             <Route path="/admin" element={<AdminRoute><AdminLayout><AdminOverview /></AdminLayout></AdminRoute>} />
             <Route path="/admin/creators" element={<AdminRoute><AdminLayout><AdminCreators /></AdminLayout></AdminRoute>} />
+            <Route path="/admin/test-accounts" element={<AdminRoute><AdminLayout><AdminTestAccounts /></AdminLayout></AdminRoute>} />
             <Route path="/admin/contents" element={<AdminRoute><AdminLayout><AdminContents /></AdminLayout></AdminRoute>} />
             <Route path="/admin/donations-messages" element={<AdminRoute><AdminLayout><AdminDonationsMessages /></AdminLayout></AdminRoute>} />
             <Route path="/admin/withdrawals" element={<AdminRoute><AdminLayout><AdminWithdrawals /></AdminLayout></AdminRoute>} />
@@ -358,40 +360,39 @@ export function LandingPage() {
 
   const floatingLogos = [
     {
-      url: "https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/eac30152-d08a-4b2d-8b21-6bb36eed4d16.png",
+      url: "/payment-icons/wave.png",
+      name: "Wave",
       position: "left-[1%] md:left-[2%] lg:left-[4%] top-[12%]",
       delay: 0,
       duration: 5,
     },
     {
-      url: "https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/b32e99dd-45d8-409a-b1a4-382b27c2d0f5.jpg",
+      url: "/payment-icons/orange-money.png",
+      name: "Orange Money",
       position: "left-[5%] md:left-[8%] lg:left-[12%] top-[44%]",
       delay: 1.5,
       duration: 6,
     },
     {
-      url: "https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/1eb16b59-0a1c-44bb-b97b-c7cd0bf23ec3.jpg",
+      url: "/payment-icons/mtn-money.jpg",
+      name: "MTN MoMo",
       position: "left-[2%] md:left-[3%] lg:left-[6%] top-[74%]",
       delay: 0.8,
       duration: 5.5,
     },
     {
-      url: "https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/2ae62ee0-65e9-41c8-92cc-585fd4f0cfef.png",
+      url: "/payment-icons/moov-money.png",
+      name: "Moov Money",
       position: "right-[1%] md:right-[2%] lg:right-[4%] top-[15%]",
       delay: 0.5,
       duration: 5.2,
     },
     {
-      url: "https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/e5138f48-879a-47b8-b5ed-1d361151def9.png",
+      url: "/payment-icons/mixx-by-yas.jpg",
+      name: "Mixx by Yas",
       position: "right-[5%] md:right-[8%] lg:right-[12%] top-[48%]",
       delay: 2,
       duration: 6.4,
-    },
-    {
-      url: "https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/db10a3b5-4d71-4372-98d3-09cf1f5152dc.png",
-      position: "right-[2%] md:right-[3%] lg:right-[6%] top-[76%]",
-      delay: 1.2,
-      duration: 4.8,
     }
   ];
 
@@ -433,8 +434,8 @@ export function LandingPage() {
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <img 
-              src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
-              alt="MomoLink Logo" 
+              src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+              alt="MomoLink Logo"
               className="h-8 w-8 object-contain rounded-lg"
               id="app-logo"
             />
@@ -598,7 +599,7 @@ export function LandingPage() {
                 <img
                   key={idx}
                   src={logo.url}
-                  alt={`Méthode de paiement ${idx + 1}`}
+                  alt={logo.name}
                   referrerPolicy="no-referrer"
                   className="h-8 w-auto object-contain rounded-md border border-border-custom/50 bg-white p-1"
                 />
@@ -1223,8 +1224,8 @@ export function LandingPage() {
           <div className="flex flex-col gap-4 text-left">
             <div className="flex items-center gap-2">
               <img 
-                src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
-                alt="MomoLink Logo" 
+                src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+                alt="MomoLink Logo"
                 className="h-7 w-7 object-contain rounded-md"
               />
               <span className={`font-display font-bold text-base tracking-tight ${styles.textPrimary}`}>

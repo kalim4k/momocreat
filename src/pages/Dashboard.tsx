@@ -583,18 +583,16 @@ export default function Dashboard() {
     const provLower = provider?.toLowerCase() || '';
     switch (provLower) {
       case 'mtn':
-        return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/73ceff4e-a60e-46d0-ade3-292133629a7a.jpg';
-      case 'paypal':
-        return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/8cf1bfef-76e2-4c1b-a57d-74b3a39e6db1.png';
+        return '/payment-icons/mtn-money.jpg';
       case 'orange':
-        return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/7b451d8c-d330-480a-b731-80a611b8d090.png';
+        return '/payment-icons/orange-money.png';
       case 'moov':
-        return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/22d27599-04ae-41da-90da-0037542b9dd4.png';
+        return '/payment-icons/moov-money.png';
       case 'mixbyyass':
       case 'mix by yass':
-        return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/b97d7539-370a-42fb-81a4-6171a1c00e95.jpg';
+        return '/payment-icons/mixx-by-yas.jpg';
       case 'wave':
-        return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/a8d55466-5d3f-4390-a52c-5c0183b659f2.png';
+        return '/payment-icons/wave.png';
       default:
         return null;
     }
@@ -608,7 +606,6 @@ export default function Dashboard() {
       case 'orange': return 'Orange Money';
       case 'mtn': return 'MTN MoMo';
       case 'moov': return 'Moov Money';
-      case 'paypal': return 'PayPal';
       case 'mixbyyass': return 'Mix By Yass';
       default: return provider?.toUpperCase() || 'Mobile Money';
     }
@@ -825,7 +822,12 @@ export default function Dashboard() {
     e.preventDefault();
     setWithdrawalError(null);
     setWithdrawalSuccess(null);
-    
+
+    if (profile?.is_test_account) {
+      setWithdrawalError("Ce compte est un compte de test : les retraits sont désactivés (les données affichées ne sont pas de vrais revenus).");
+      return;
+    }
+
     const amount = Number(withdrawAmount);
     if (isNaN(amount) || amount < 5000) {
       setWithdrawalError("Le montant minimum est de 5 000 FCFA.");
@@ -1576,8 +1578,8 @@ export default function Dashboard() {
           <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0' : 'gap-2 px-2'} transition-all duration-300`}>
             <div className="w-8 h-8 flex items-center justify-center shrink-0">
               <img 
-                src="https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/d0bc935c-5e3d-48cd-a9c6-dae266ebffdc.png" 
-                alt="MomoLink Logo" 
+                src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+                alt="MomoLink Logo"
                 className="w-8 h-8 object-contain rounded-lg shadow-sm"
               />
             </div>
@@ -3733,19 +3735,26 @@ export default function Dashboard() {
                         key={prov}
                         type="button"
                         onClick={() => setProfilePayoutProvider(prov)}
-                        className={`p-3 rounded-[12px] border text-left flex flex-col justify-between h-20 transition-all duration-200 cursor-pointer ${
+                        className={`p-3 rounded-[12px] border text-left flex items-center gap-3 h-20 transition-all duration-200 cursor-pointer ${
                           profilePayoutProvider === prov
                             ? 'border-accent-corail bg-accent-corail/5 text-accent-corail shadow-sm font-bold'
                             : `${isDarkMode ? 'border-border-custom bg-bg-primary/20 text-text-secondary' : 'border-neutral-300 bg-white text-neutral-800 hover:border-neutral-400'}`
                         }`}
                       >
-                        <span className="text-xs font-bold capitalize">{prov}</span>
-                        <span className="text-[10px] opacity-80 leading-normal">
-                          {prov === 'wave' && 'Afrique Ouest'}
-                          {prov === 'orange' && 'Orange Money'}
-                          {prov === 'mtn' && 'MTN MoMo'}
-                          {prov === 'moov' && 'Moov Money'}
-                        </span>
+                        <img
+                          src={getPayoutProviderLogo(prov) || ''}
+                          alt={getPayoutProviderLabel(prov)}
+                          className="h-9 w-9 object-contain rounded-md bg-white p-1 shrink-0"
+                        />
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold">{getPayoutProviderLabel(prov)}</span>
+                          <span className="text-[10px] opacity-80 leading-normal">
+                            {prov === 'wave' && 'Afrique Ouest'}
+                            {prov === 'orange' && 'Orange Money'}
+                            {prov === 'mtn' && 'MTN MoMo'}
+                            {prov === 'moov' && 'Moov Money'}
+                          </span>
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -3819,10 +3828,15 @@ export default function Dashboard() {
             ) : (
               <>
                 {/* 1. Statut Actuel */}
-                <div className={`${themeStyles.surface} border ${themeStyles.border} p-6 rounded-[24px] shadow-sm flex flex-col gap-6`}>
-                  <div className={`flex justify-between items-center pb-4 border-b border-dashed ${isDarkMode ? 'border-neutral-800' : 'border-gray-200'}`}>
-                    <span className="text-xs font-bold uppercase tracking-wider text-neutral-400">Statut de votre compte</span>
-                    
+                <div className={`${themeStyles.surface} border ${themeStyles.border} p-6 sm:p-7 rounded-[28px] shadow-sm flex flex-col gap-6`}>
+                  <div className={`flex flex-wrap justify-between items-center gap-2 pb-5 border-b ${themeStyles.border}`}>
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-accent-corail/10 text-accent-corail">
+                        <Sparkles size={16} />
+                      </div>
+                      <span className={`text-xs font-bold uppercase tracking-wider ${themeStyles.textSecondary}`}>MomoLink Pro</span>
+                    </div>
+
                     {/* CASE A — Active */}
                     {getSubCase() === 'A' && (
                       <div className="flex items-center gap-2">
@@ -3831,7 +3845,7 @@ export default function Dashboard() {
                             Renouvellement conseillé
                           </span>
                         )}
-                        <span className={`px-2.5 py-1 rounded-full border ${themeStyles.border} text-[10px] font-semibold uppercase tracking-wider text-neutral-300 flex items-center gap-1.5 ${isDarkMode ? 'bg-neutral-900/50' : 'bg-gray-50'}`}>
+                        <span className={`px-2.5 py-1 rounded-full border border-emerald-500/25 text-[10px] font-bold uppercase tracking-wider text-emerald-500 flex items-center gap-1.5 bg-emerald-500/10`}>
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                           Abonnement actif
                         </span>
@@ -3840,7 +3854,7 @@ export default function Dashboard() {
 
                     {/* CASE B — Grace Period */}
                     {getSubCase() === 'B' && (
-                      <span className={`px-2.5 py-1 rounded-full border ${themeStyles.border} text-[10px] font-semibold uppercase tracking-wider text-neutral-300 flex items-center gap-1.5 ${isDarkMode ? 'bg-neutral-900/50' : 'bg-gray-50'}`}>
+                      <span className="px-2.5 py-1 rounded-full border border-amber-500/25 text-[10px] font-bold uppercase tracking-wider text-amber-500 flex items-center gap-1.5 bg-amber-500/10">
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                         Période de grâce
                       </span>
@@ -3848,8 +3862,8 @@ export default function Dashboard() {
 
                     {/* CASE C/D — Inactive */}
                     {(getSubCase() === 'C' || getSubCase() === 'D') && (
-                      <span className={`px-2.5 py-1 rounded-full border ${themeStyles.border} text-[10px] font-semibold uppercase tracking-wider text-neutral-300 flex items-center gap-1.5 ${isDarkMode ? 'bg-neutral-900/50' : 'bg-gray-50'}`}>
-                        <span className="w-1.5 h-1.5 rounded-full bg-neutral-400" />
+                      <span className={`px-2.5 py-1 rounded-full border ${themeStyles.border} text-[10px] font-bold uppercase tracking-wider ${themeStyles.textSecondary} flex items-center gap-1.5 ${isDarkMode ? 'bg-neutral-900/50' : 'bg-gray-50'}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${isDarkMode ? 'bg-neutral-500' : 'bg-gray-400'}`} />
                         {getSubCase() === 'D' ? "Non abonné" : "Désactivé"}
                       </span>
                     )}
@@ -3878,12 +3892,12 @@ export default function Dashboard() {
                         {/* Progress Bar */}
                         <div className="flex flex-col gap-2">
                           <div className={`w-full h-3 rounded-full ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-100'} overflow-hidden`}>
-                            <div 
-                              className="h-full bg-accent-corail transition-all duration-300" 
+                            <div
+                              className="h-full bg-accent-corail transition-all duration-300"
                               style={{ width: `${progressPercent}%` }}
                             />
                           </div>
-                          <div className="flex justify-between text-[10px] font-bold font-mono text-neutral-400">
+                          <div className={`flex justify-between text-[10px] font-bold font-mono ${themeStyles.textSecondary}`}>
                             <span>Début : {startDate.toLocaleDateString('fr-FR')}</span>
                             <span>{Math.round(progressPercent)}% écoulé</span>
                           </div>
@@ -3896,7 +3910,7 @@ export default function Dashboard() {
                               <span className="text-amber-500 mt-0.5 font-bold">⚠️</span>
                               <div className="flex flex-col gap-0.5">
                                 <p className={`font-semibold ${themeStyles.textPrimary}`}>Votre abonnement expire bientôt</p>
-                                <p className="text-neutral-400">Évitez toute interruption en renouvelant maintenant.</p>
+                                <p className={themeStyles.textSecondary}>Évitez toute interruption en renouvelant maintenant.</p>
                               </div>
                             </div>
                             <button
@@ -3925,8 +3939,8 @@ export default function Dashboard() {
                             <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                             <span>Période de grâce active ({graceDaysRemaining} jours restants)</span>
                           </div>
-                          <p className="leading-relaxed text-neutral-400">
-                            Votre abonnement MomoLink Pro a expiré il y a {daysExpired} {daysExpired > 1 ? 'jours' : 'jour'}. 
+                          <p className={`leading-relaxed ${themeStyles.textSecondary}`}>
+                            Votre abonnement MomoLink Pro a expiré il y a {daysExpired} {daysExpired > 1 ? 'jours' : 'jour'}.
                             Pour continuer à publier du contenu et demander des retraits, veuillez renouveler votre abonnement sous {graceDaysRemaining} {graceDaysRemaining > 1 ? 'jours' : 'jour'}.
                           </p>
                         </div>
@@ -3934,12 +3948,12 @@ export default function Dashboard() {
                         <button
                           disabled={isSubscribingProcess}
                           onClick={handleSubscribe}
-                          className="w-full py-3.5 rounded-xl bg-accent-corail hover:bg-accent-corail-hover text-white font-extrabold text-sm shadow-md cursor-pointer transition-transform duration-100 active:scale-98 flex justify-center items-center gap-2"
+                          className="w-full py-3.5 rounded-xl bg-accent-corail hover:bg-accent-corail-hover text-white font-extrabold text-sm shadow-md shadow-accent-corail/20 cursor-pointer transition-transform duration-100 active:scale-98 flex justify-center items-center gap-2"
                         >
                           {isSubscribingProcess ? (
                             <Loader2 className="animate-spin h-5 w-5" />
                           ) : (
-                            'Renouveler maintenant — 5 000 FCFA/mois'
+                            'Renouveler maintenant — 4 990 FCFA/mois'
                           )}
                         </button>
                       </div>
@@ -3948,57 +3962,71 @@ export default function Dashboard() {
 
                   {(getSubCase() === 'C' || getSubCase() === 'D') && (
                     <div className="flex flex-col gap-6">
-                      <div className={`p-5 rounded-[20px] border ${themeStyles.border} ${isDarkMode ? 'bg-neutral-900/20' : 'bg-gray-50/50'} text-xs flex flex-col gap-3`}>
-                        <div className="flex items-center gap-2.5 text-neutral-300 font-bold text-sm">
-                          <span className="w-2 h-2 rounded-full bg-neutral-600" />
-                          <span>{getSubCase() === 'D' ? "Formule MomoLink Pro requise" : "Votre abonnement MomoLink Pro est expiré"}</span>
+                      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 p-5 rounded-[20px] border border-accent-corail/20 bg-accent-corail/5">
+                        <div className="flex flex-col gap-1.5">
+                          <span className={`text-xs font-bold ${themeStyles.textPrimary}`}>
+                            {getSubCase() === 'D' ? "Formule MomoLink Pro requise" : "Votre abonnement MomoLink Pro est expiré"}
+                          </span>
+                          <p className={`text-xs leading-relaxed max-w-md ${themeStyles.textSecondary}`}>
+                            {getSubCase() === 'D'
+                              ? "Rejoignez MomoLink Pro pour débloquer la publication de vos contenus exclusifs et activer les retraits Mobile Money."
+                              : "Votre abonnement est arrivé à échéance. Renouvelez-le dès aujourd'hui pour réactiver instantanément vos avantages."
+                            }
+                          </p>
                         </div>
-                        <p className="leading-relaxed text-neutral-400">
-                          {getSubCase() === 'D' 
-                            ? "Rejoignez MomoLink Pro pour débloquer la publication de vos contenus exclusifs et activer les retraits Mobile Money." 
-                            : "Votre abonnement est arrivé à échéance. Renouvelez-le dès aujourd'hui pour réactiver instantanément vos avantages."
-                          }
-                        </p>
-                        {getSubCase() === 'C' && autoDraftedCount > 0 && (
-                          <div className="mt-1 p-3 rounded-lg bg-red-500/5 border border-red-500/10 text-red-400/90 font-medium">
-                            ⚠️ {autoDraftedCount} contenu{autoDraftedCount > 1 ? 's ont' : ' a'} été temporairement archivé{autoDraftedCount > 1 ? 's' : ''} automatiquement. Ils seront immédiatement remis en ligne après votre réabonnement.
-                          </div>
-                        )}
+                        <div className="flex items-baseline gap-1 shrink-0">
+                          <span className="text-3xl font-extrabold font-mono text-accent-corail">4 990</span>
+                          <span className={`text-xs font-semibold ${themeStyles.textSecondary}`}>FCFA/mois</span>
+                        </div>
                       </div>
+
+                      {getSubCase() === 'C' && autoDraftedCount > 0 && (
+                        <div className="p-3 rounded-lg bg-red-500/5 border border-red-500/10 text-red-400 text-xs font-medium">
+                          ⚠️ {autoDraftedCount} contenu{autoDraftedCount > 1 ? 's ont' : ' a'} été temporairement archivé{autoDraftedCount > 1 ? 's' : ''} automatiquement. Ils seront immédiatement remis en ligne après votre réabonnement.
+                        </div>
+                      )}
 
                       {/* Restrictions list */}
                       <div className="flex flex-col gap-3">
-                        <h4 className={`text-xs font-bold ${themeStyles.textPrimary} uppercase tracking-wider`}>Avantages & Statut :</h4>
+                        <h4 className={`text-xs font-bold ${themeStyles.textPrimary} uppercase tracking-wider`}>Avantages & Statut</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
-                          <div className="flex items-start gap-2.5 text-neutral-400">
-                            <X className="text-neutral-500 mt-0.5 shrink-0" size={14} />
-                            <div className="flex flex-col gap-0.5">
-                              <span className="font-semibold text-neutral-300">Publication de contenu</span>
-                              <span className="text-[11px] text-neutral-500">Mise en ligne de nouveaux fichiers bloquée</span>
+                          <div className="flex items-start gap-2.5">
+                            <div className={`p-1 rounded-full shrink-0 mt-0.5 ${isDarkMode ? 'bg-neutral-800 text-neutral-500' : 'bg-gray-100 text-gray-400'}`}>
+                              <X size={12} />
                             </div>
-                          </div>
-                          
-                          <div className="flex items-start gap-2.5 text-neutral-400">
-                            <X className="text-neutral-500 mt-0.5 shrink-0" size={14} />
                             <div className="flex flex-col gap-0.5">
-                              <span className="font-semibold text-neutral-300">Versements & Retraits</span>
-                              <span className="text-[11px] text-neutral-500">Demandes de retraits temporairement suspendues</span>
+                              <span className={`font-semibold ${themeStyles.textPrimary}`}>Publication de contenu</span>
+                              <span className={`text-[11px] ${themeStyles.textSecondary}`}>Mise en ligne de nouveaux fichiers bloquée</span>
                             </div>
                           </div>
 
-                          <div className="flex items-start gap-2.5 text-neutral-400">
-                            <X className="text-neutral-500 mt-0.5 shrink-0" size={14} />
+                          <div className="flex items-start gap-2.5">
+                            <div className={`p-1 rounded-full shrink-0 mt-0.5 ${isDarkMode ? 'bg-neutral-800 text-neutral-500' : 'bg-gray-100 text-gray-400'}`}>
+                              <X size={12} />
+                            </div>
                             <div className="flex flex-col gap-0.5">
-                              <span className="font-semibold text-neutral-300">Contenus en ligne</span>
-                              <span className="text-[11px] text-neutral-500">Archivage automatique (après délai de grâce)</span>
+                              <span className={`font-semibold ${themeStyles.textPrimary}`}>Versements & Retraits</span>
+                              <span className={`text-[11px] ${themeStyles.textSecondary}`}>Demandes de retraits temporairement suspendues</span>
                             </div>
                           </div>
 
-                          <div className="flex items-start gap-2.5 text-neutral-400">
-                            <Check className="text-emerald-500 mt-0.5 shrink-0" size={14} />
+                          <div className="flex items-start gap-2.5">
+                            <div className={`p-1 rounded-full shrink-0 mt-0.5 ${isDarkMode ? 'bg-neutral-800 text-neutral-500' : 'bg-gray-100 text-gray-400'}`}>
+                              <X size={12} />
+                            </div>
                             <div className="flex flex-col gap-0.5">
-                              <span className="font-semibold text-neutral-300">Page de Profil Public</span>
-                              <span className="text-[11px] text-emerald-500/80">Reste accessible et visible par vos fans</span>
+                              <span className={`font-semibold ${themeStyles.textPrimary}`}>Contenus en ligne</span>
+                              <span className={`text-[11px] ${themeStyles.textSecondary}`}>Archivage automatique (après délai de grâce)</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-start gap-2.5">
+                            <div className="p-1 rounded-full shrink-0 mt-0.5 bg-emerald-500/10 text-emerald-500">
+                              <Check size={12} />
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <span className={`font-semibold ${themeStyles.textPrimary}`}>Page de Profil Public</span>
+                              <span className="text-[11px] text-emerald-500">Reste accessible et visible par vos fans</span>
                             </div>
                           </div>
                         </div>
@@ -4007,12 +4035,12 @@ export default function Dashboard() {
                       <button
                         disabled={isSubscribingProcess}
                         onClick={handleSubscribe}
-                        className="w-full py-3.5 rounded-xl bg-accent-corail hover:bg-accent-corail-hover text-white font-extrabold text-sm shadow-md cursor-pointer transition-transform duration-100 active:scale-98 flex justify-center items-center gap-2"
+                        className="w-full py-3.5 rounded-xl bg-accent-corail hover:bg-accent-corail-hover text-white font-extrabold text-sm shadow-md shadow-accent-corail/20 cursor-pointer transition-transform duration-100 active:scale-98 flex justify-center items-center gap-2"
                       >
                         {isSubscribingProcess ? (
                           <Loader2 className="animate-spin h-5 w-5" />
                         ) : (
-                          "S'abonner — 5 000 FCFA/mois"
+                          "S'abonner — 4 990 FCFA/mois"
                         )}
                       </button>
                     </div>
@@ -4034,20 +4062,20 @@ export default function Dashboard() {
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs">
                           <thead>
-                            <tr className={`border-b ${themeStyles.border} ${isDarkMode ? 'bg-[#14120F]' : 'bg-gray-50'} text-neutral-400 font-bold uppercase tracking-wider text-[10px]`}>
+                            <tr className={`border-b ${themeStyles.border} ${isDarkMode ? 'bg-[#14120F]' : 'bg-gray-50'} ${themeStyles.textSecondary} font-bold uppercase tracking-wider text-[10px]`}>
                               <th className="p-4">Date de début</th>
                               <th className="p-4">Date de fin</th>
                               <th className="p-4">Montant</th>
                               <th className="p-4">Statut</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-neutral-800">
+                          <tbody className={`divide-y ${isDarkMode ? 'divide-neutral-800' : 'divide-gray-100'}`}>
                             {subscriptionsList.map((sub, idx) => (
                               <tr key={sub.id || idx} className={`${isDarkMode ? 'hover:bg-neutral-900/30' : 'hover:bg-gray-50/50'} transition-colors font-mono`}>
-                                <td className="p-4 text-neutral-300">
+                                <td className={`p-4 ${themeStyles.textPrimary}`}>
                                   {new Date(sub.start_date || sub.startDate).toLocaleDateString('fr-FR')}
                                 </td>
-                                <td className="p-4 text-neutral-300">
+                                <td className={`p-4 ${themeStyles.textPrimary}`}>
                                   {new Date(sub.end_date || sub.endDate).toLocaleDateString('fr-FR')}
                                 </td>
                                 <td className="p-4 font-bold text-accent-corail">
@@ -4055,7 +4083,7 @@ export default function Dashboard() {
                                 </td>
                                 <td className="p-4">
                                   {sub.status === 'active' ? (
-                                    <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 text-[10px] font-bold uppercase">
+                                    <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/25 text-[10px] font-bold uppercase">
                                       Actif
                                     </span>
                                   ) : sub.status === 'expired' ? (
@@ -4063,7 +4091,7 @@ export default function Dashboard() {
                                       Expiré
                                     </span>
                                   ) : (
-                                    <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 border border-neutral-700 text-[10px] font-bold uppercase">
+                                    <span className={`px-2 py-0.5 rounded border text-[10px] font-bold uppercase ${isDarkMode ? 'bg-neutral-800 text-neutral-400 border-neutral-700' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
                                       {sub.status}
                                     </span>
                                   )}

@@ -358,5 +358,72 @@ ALTER TABLE public.donations DROP CONSTRAINT IF EXISTS donations_amount_fcfa_che
 ALTER TABLE public.donations ADD CONSTRAINT donations_amount_fcfa_check CHECK (amount_fcfa >= 1000);
 
 
+-- ==========================================
+-- MIGRATION : COMPTES DE TEST (données fictives exclues des revenus admin)
+-- ==========================================
+-- Permet de marquer une boutique comme "compte de test" : ses ventes/dons fictifs
+-- restent visibles sur SON propre dashboard créateur (pour tourner des vidéos promo),
+-- mais sont exclus de tous les indicateurs de revenus globaux côté admin, et les
+-- demandes de retrait y sont bloquées pour éviter un vrai virement sur un solde fictif.
+
+ALTER TABLE public.creator_profiles ADD COLUMN IF NOT EXISTS is_test_account BOOLEAN DEFAULT false NOT NULL;
+
+-- Renforce la policy d'insertion des retraits pour bloquer les comptes de test au niveau base de données,
+-- en plus du blocage côté application (défense en profondeur : même un appel direct à l'API Supabase est bloqué).
+DROP POLICY IF EXISTS "Les créateurs peuvent demander un retrait" ON public.withdrawals;
+CREATE POLICY "Les créateurs peuvent demander un retrait"
+    ON public.withdrawals FOR INSERT
+    TO authenticated
+    WITH CHECK (
+        auth.uid() IN (SELECT user_id FROM public.creator_profiles WHERE id = creator_id)
+        AND NOT EXISTS (
+            SELECT 1 FROM public.creator_profiles cp
+            WHERE cp.id = creator_id AND cp.is_test_account = true
+        )
+    );
+
+-- Active le compte de test pour michel@gmail.com (à exécuter une seule fois).
+-- Si ce créateur a plusieurs boutiques, elles seront toutes marquées comme comptes de test.
+UPDATE public.creator_profiles
+SET is_test_account = true
+WHERE user_id IN (SELECT id FROM auth.users WHERE email = 'michel@gmail.com');
+
+-- Héritage automatique : si un créateur possède déjà une boutique en compte de test,
+-- toute NOUVELLE boutique qu'il crée (même depuis le flow normal "Créer une boutique"
+-- côté client) devient automatiquement un compte de test aussi. Garanti au niveau base
+-- de données car aucune route serveur ne crée de creator_profiles (tout passe par le client).
+CREATE OR REPLACE FUNCTION public.inherit_test_account_flag()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.is_test_account IS NOT TRUE AND EXISTS (
+    SELECT 1 FROM public.creator_profiles
+    WHERE user_id = NEW.user_id AND is_test_account = true
+  ) THEN
+    NEW.is_test_account := true;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_inherit_test_account ON public.creator_profiles;
+CREATE TRIGGER trg_inherit_test_account
+BEFORE INSERT ON public.creator_profiles
+FOR EACH ROW EXECUTE FUNCTION public.inherit_test_account_flag();
+
+-- Active le compte de test pour les 3 nouveaux comptes (déjà existants, boutiques déjà créées).
+UPDATE public.creator_profiles
+SET is_test_account = true
+WHERE user_id IN (
+    SELECT id FROM auth.users WHERE email IN ('boss@gmail.com', 'saratah@gmail.com', 'dianah@gmail.com')
+);
+
+-- Marqueur dédié pour les fausses transactions générées par l'admin, séparé du champ
+-- `payment_reference` visible par le créateur (qui doit ressembler à une vraie référence
+-- Mobile Money, ex: "WAVE-482913-MOMO", pour rester crédible dans les vidéos).
+ALTER TABLE public.purchases ADD COLUMN IF NOT EXISTS is_fake BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE public.donations ADD COLUMN IF NOT EXISTS is_fake BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE public.withdrawals ADD COLUMN IF NOT EXISTS is_fake BOOLEAN DEFAULT false NOT NULL;
+
+
 
 

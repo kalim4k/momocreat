@@ -31,6 +31,7 @@ interface Creator {
   status: 'active' | 'inactive';
   is_premium: boolean;
   premium_expires_at: string | null;
+  is_test_account?: boolean;
   created_at: string;
   email: string;
   contentCount: number;
@@ -95,6 +96,7 @@ export default function AdminCreators() {
 
   const [newQuotaValue, setNewQuotaValue] = useState<number>(2);
   const [isUpdatingQuota, setIsUpdatingQuota] = useState(false);
+  const [isSeedingTestData, setIsSeedingTestData] = useState(false);
 
   // Group creators by user_id/email
   const groupedCreators = React.useMemo(() => {
@@ -267,6 +269,30 @@ export default function AdminCreators() {
     }
   };
 
+  const handleSeedTestData = async () => {
+    if (!selectedCreatorId) return;
+    try {
+      setIsSeedingTestData(true);
+      const headers = await getHeaders();
+      const res = await fetch(`/api/admin/creators/${selectedCreatorId}/seed-test-data`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ purchasesCount: 15, donationsCount: 8 })
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Erreur lors de la génération des données de test.');
+
+      showToast(`${result.purchasesCreated} ventes et ${result.donationsCreated} dons fictifs générés !`);
+      // Refresh details to reflect the new fake balance/history
+      handleViewDetails(selectedCreatorId);
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || 'Impossible de générer les données de test.', 'error');
+    } finally {
+      setIsSeedingTestData(false);
+    }
+  };
+
   const getSubStatusBadge = (status: Creator['subscriptionStatus']) => {
     switch (status) {
       case 'active':
@@ -398,7 +424,14 @@ export default function AdminCreators() {
                                   )}
                                 </div>
                                 <div>
-                                  <p className="font-semibold text-text-primary text-sm leading-tight">{creator.display_name || 'Sans Nom'}</p>
+                                  <div className="flex items-center gap-1.5">
+                                    <p className="font-semibold text-text-primary text-sm leading-tight">{creator.display_name || 'Sans Nom'}</p>
+                                    {creator.is_test_account && (
+                                      <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/25 text-[9px] font-bold uppercase tracking-wider">
+                                        Test
+                                      </span>
+                                    )}
+                                  </div>
                                   <p className="text-xs text-text-secondary">@{creator.username}</p>
                                 </div>
                               </div>
@@ -542,6 +575,9 @@ export default function AdminCreators() {
                   <div className="overflow-hidden space-y-1">
                     <div className="flex items-center gap-2">
                       <h4 className="font-bold text-text-primary truncate leading-none">{creatorDetails.creator.display_name || 'Sans Nom'}</h4>
+                      {creatorDetails.creator.is_test_account && (
+                        <span className="bg-amber-500/10 text-amber-500 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase border border-amber-500/25">Test</span>
+                      )}
                       {creatorDetails.creator.status === 'inactive' && (
                         <span className="bg-red-100 text-red-600 text-[9px] font-semibold px-1.5 py-0.5 rounded uppercase border border-red-200">Suspendu</span>
                       )}
@@ -550,6 +586,26 @@ export default function AdminCreators() {
                     <p className="text-xs text-text-secondary pt-1 line-clamp-2 leading-relaxed italic">{creatorDetails.creator.bio || 'Aucune biographie.'}</p>
                   </div>
                 </div>
+
+                {/* Test Account: fake data generator */}
+                {creatorDetails.creator.is_test_account && (
+                  <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 flex items-center justify-between gap-3">
+                    <div>
+                      <h5 className="text-xs font-bold text-text-primary">Générer des données de test</h5>
+                      <p className="text-[11px] text-text-secondary mt-0.5">
+                        Crée 15 ventes et 8 dons fictifs (statut complété, 30 derniers jours) sur ce compte. Exclu des revenus admin.
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleSeedTestData}
+                      disabled={isSeedingTestData}
+                      className="shrink-0 px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {isSeedingTestData ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                      {isSeedingTestData ? 'Génération...' : 'Générer'}
+                    </button>
+                  </div>
+                )}
 
                 {/* Account Balances Block */}
                 <div className="grid grid-cols-2 gap-4">

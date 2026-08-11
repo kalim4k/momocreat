@@ -23,6 +23,7 @@ interface CreatorProfile {
   avatar_url: string;
   payout_phone_number: string;
   payout_provider: string;
+  is_test_account?: boolean;
 }
 
 interface Withdrawal {
@@ -273,10 +274,10 @@ export default function AdminWithdrawals() {
 
   const getPayoutProviderLogo = (provider: string) => {
     const p = (provider || '').toLowerCase();
-    if (p.includes('wave')) return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/a8d55466-5d3f-4390-a52c-5c0183b659f2.png';
-    if (p.includes('orange')) return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/7b451d8c-d330-480a-b731-80a611b8d090.png';
-    if (p.includes('mtn')) return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/73ceff4e-a60e-46d0-ade3-292133629a7a.jpg';
-    if (p.includes('moov')) return 'https://ysbiedwkakdqadxtuwab.supabase.co/storage/v1/object/public/uploads/22d27599-04ae-41da-90da-0037542b9dd4.png';
+    if (p.includes('wave')) return '/payment-icons/wave.png';
+    if (p.includes('orange')) return '/payment-icons/orange-money.png';
+    if (p.includes('mtn')) return '/payment-icons/mtn-money.jpg';
+    if (p.includes('moov')) return '/payment-icons/moov-money.png';
     return null;
   };
 
@@ -445,9 +446,16 @@ export default function AdminWithdrawals() {
                                       )}
                                     </div>
                                     <div>
-                                      <p className="font-semibold text-text-primary text-xs leading-tight">
-                                        Boutique : {w.creator_profiles?.display_name || 'Sans Nom'}
-                                      </p>
+                                      <div className="flex items-center gap-1.5">
+                                        <p className="font-semibold text-text-primary text-xs leading-tight">
+                                          Boutique : {w.creator_profiles?.display_name || 'Sans Nom'}
+                                        </p>
+                                        {w.creator_profiles?.is_test_account && (
+                                          <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/25 text-[9px] font-bold uppercase tracking-wider">
+                                            Test
+                                          </span>
+                                        )}
+                                      </div>
                                       <p className="text-[10px] text-text-secondary">@{w.creator_profiles?.username}</p>
                                     </div>
                                   </div>
@@ -555,7 +563,14 @@ export default function AdminWithdrawals() {
                             )}
                           </div>
                           <div>
-                            <p className="font-semibold text-text-primary leading-tight">{w.creator_profiles?.display_name || 'Sans Nom'}</p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-semibold text-text-primary leading-tight">{w.creator_profiles?.display_name || 'Sans Nom'}</p>
+                              {w.creator_profiles?.is_test_account && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/25 text-[9px] font-bold uppercase tracking-wider">
+                                  Test
+                                </span>
+                              )}
+                            </div>
                             <p className="text-xs text-text-secondary">@{w.creator_profiles?.username}</p>
                           </div>
                         </div>

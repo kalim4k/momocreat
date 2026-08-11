@@ -24,6 +24,7 @@ interface CreatorSubscription {
   expiryDate: string | null;
   daysRemaining: number;
   amountPaid: number;
+  is_test_account?: boolean;
 }
 
 export default function AdminSubscriptions() {
@@ -227,7 +228,14 @@ export default function AdminSubscriptions() {
                               )}
                             </div>
                             <div>
-                              <p className="font-semibold text-text-primary leading-tight">{s.display_name || 'Sans Nom'}</p>
+                              <div className="flex items-center gap-1.5">
+                                <p className="font-semibold text-text-primary leading-tight">{s.display_name || 'Sans Nom'}</p>
+                                {s.is_test_account && (
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/25 text-[9px] font-bold uppercase tracking-wider">
+                                    Test
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-xs text-text-secondary">@{s.username}</p>
                             </div>
                           </div>
