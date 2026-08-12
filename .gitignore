@@ -7,3 +7,9 @@ coverage/
 .env*
 !.env.example
 izikit/
+
+# Base locale de developpement : contient les emails et telephones des acheteurs.
+# Supabase est la source de verite (ce fichier n'est qu'un cache local, et le disque est
+# de toute facon en lecture seule en production), donc il n'a rien a faire dans un depot public.
+src/data/server_db.json
+scratchpad/
