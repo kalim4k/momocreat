@@ -8,14 +8,22 @@ import path from 'path';
 
 const DB_FILE_PATH = path.join(process.cwd(), 'src', 'data', 'server_db.json');
 
-// Ensure data directory exists
-const dir = path.dirname(DB_FILE_PATH);
-try {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+// On serverless the filesystem is read-only and each request may run in a fresh container,
+// so this JSON file can neither be written nor survive between invocations — Supabase is the
+// source of truth there. Skipping the disk entirely avoids doing failure-prone I/O during
+// module initialization, where an error is unrecoverable and takes down every route.
+const IS_SERVERLESS = !!process.env.VERCEL;
+
+if (!IS_SERVERLESS) {
+  // Ensure data directory exists
+  const dir = path.dirname(DB_FILE_PATH);
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch (err) {
+    console.warn('[ServerDB] Safe warning: Could not verify or create database directory:', err);
   }
-} catch (err) {
-  console.warn('[ServerDB] Safe warning: Could not verify or create database directory, probably running in a read-only serverless environment:', err);
 }
 
 export interface ServerPurchase {
@@ -94,6 +102,11 @@ let memoryDb: DBStructure | null = null;
 
 function loadDB(): DBStructure {
   if (memoryDb) {
+    return memoryDb;
+  }
+
+  if (IS_SERVERLESS) {
+    memoryDb = { purchases: [], donations: [], transactions: [], notifications: [], subscriptions: [], creator_profiles: [], withdrawals: [] };
     return memoryDb;
   }
 
@@ -219,6 +232,8 @@ function loadDB(): DBStructure {
 
 function saveDB(db: DBStructure) {
   memoryDb = db;
+  if (IS_SERVERLESS) return;
+
   try {
     fs.writeFileSync(DB_FILE_PATH, JSON.stringify(db, null, 2), 'utf-8');
   } catch (err) {

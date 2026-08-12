@@ -9,17 +9,24 @@ import { createClient } from "@supabase/supabase-js";
 import fs from "fs";
 import path from "path";
 var DB_FILE_PATH = path.join(process.cwd(), "src", "data", "server_db.json");
-var dir = path.dirname(DB_FILE_PATH);
-try {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+var IS_SERVERLESS = !!process.env.VERCEL;
+if (!IS_SERVERLESS) {
+  const dir = path.dirname(DB_FILE_PATH);
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch (err) {
+    console.warn("[ServerDB] Safe warning: Could not verify or create database directory:", err);
   }
-} catch (err) {
-  console.warn("[ServerDB] Safe warning: Could not verify or create database directory, probably running in a read-only serverless environment:", err);
 }
 var memoryDb = null;
 function loadDB() {
   if (memoryDb) {
+    return memoryDb;
+  }
+  if (IS_SERVERLESS) {
+    memoryDb = { purchases: [], donations: [], transactions: [], notifications: [], subscriptions: [], creator_profiles: [], withdrawals: [] };
     return memoryDb;
   }
   try {
@@ -136,6 +143,7 @@ function loadDB() {
 }
 function saveDB(db) {
   memoryDb = db;
+  if (IS_SERVERLESS) return;
   try {
     fs.writeFileSync(DB_FILE_PATH, JSON.stringify(db, null, 2), "utf-8");
   } catch (err) {

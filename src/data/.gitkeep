@@ -1,0 +1,2 @@
+# Garde le dossier src/data present dans le depot.
+# La base locale (server_db.json) reste ignoree : elle contient des donnees acheteurs.
