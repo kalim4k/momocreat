@@ -1428,10 +1428,16 @@ async function apply_subscription_expiry() {
   }
 }
 
-// Set periodic expiration runner (every hour)
-setInterval(apply_subscription_expiry, 60 * 60 * 1000);
-// Run a check shortly after startup
-setTimeout(apply_subscription_expiry, 10000);
+// Long-running process only. A serverless container is frozen once it has answered, so a
+// timer firing later resumes work in a half-suspended container and can poison it — every
+// subsequent request on that container then fails with FUNCTION_INVOCATION_FAILED. In
+// production this runs from the scheduled /api/cron/* endpoints instead.
+if (!process.env.VERCEL) {
+  // Set periodic expiration runner (every hour)
+  setInterval(apply_subscription_expiry, 60 * 60 * 1000);
+  // Run a check shortly after startup
+  setTimeout(apply_subscription_expiry, 10000);
+}
 
 
 // ==========================================
@@ -1531,10 +1537,12 @@ async function reconcilePendingPayments() {
   return { purchases: purchasesFixed, donations: donationsFixed };
 }
 
-// Local/long-running process only. On serverless (Vercel) the process is torn down between
-// requests, so production relies on the /api/cron/reconcile endpoint below instead.
-setInterval(reconcilePendingPayments, 5 * 60 * 1000);
-setTimeout(reconcilePendingPayments, 20000);
+// Local/long-running process only — see the note on the subscription-expiry timers above.
+// On serverless this runs from the scheduled /api/cron/reconcile endpoint below.
+if (!process.env.VERCEL) {
+  setInterval(reconcilePendingPayments, 5 * 60 * 1000);
+  setTimeout(reconcilePendingPayments, 20000);
+}
 
 /**
  * GET /api/health

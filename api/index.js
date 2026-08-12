@@ -1243,8 +1243,10 @@ async function apply_subscription_expiry() {
     console.error("[Server] apply_subscription_expiry error:", err);
   }
 }
-setInterval(apply_subscription_expiry, 60 * 60 * 1e3);
-setTimeout(apply_subscription_expiry, 1e4);
+if (!process.env.VERCEL) {
+  setInterval(apply_subscription_expiry, 60 * 60 * 1e3);
+  setTimeout(apply_subscription_expiry, 1e4);
+}
 var RECONCILE_MIN_AGE_MS = 2 * 60 * 1e3;
 var RECONCILE_BATCH_SIZE = 50;
 async function reconcilePendingPayments() {
@@ -1300,8 +1302,10 @@ async function reconcilePendingPayments() {
   }
   return { purchases: purchasesFixed, donations: donationsFixed };
 }
-setInterval(reconcilePendingPayments, 5 * 60 * 1e3);
-setTimeout(reconcilePendingPayments, 2e4);
+if (!process.env.VERCEL) {
+  setInterval(reconcilePendingPayments, 5 * 60 * 1e3);
+  setTimeout(reconcilePendingPayments, 2e4);
+}
 app.get("/api/health", (_req, res) => {
   return res.json({
     ok: true,
