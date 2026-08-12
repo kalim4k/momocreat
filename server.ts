@@ -12,24 +12,35 @@ import { serverDb } from './src/lib/serverDb';
 
 dotenv.config();
 
-// Ensure both VITE_ prefixed and standard environment variables are mapped on process.env
-process.env.SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-process.env.VITE_SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+/**
+ * Mirrors one value across every alias the codebase reads it under (VITE_-prefixed or not).
+ *
+ * Assigning `undefined` to process.env stores the *string* `"undefined"`, which is truthy and
+ * slips past every `if (value)` guard. A missing Supabase URL then reached `createClient()`,
+ * which threw at module load and took down every single API route with
+ * FUNCTION_INVOCATION_FAILED — instead of degrading to demo mode. So: only ever write a real
+ * value, and scrub any `"undefined"` left behind.
+ */
+function syncEnvAliases(...names: string[]) {
+  const value = names.map(n => process.env[n]).find(v => v && v !== 'undefined');
 
-process.env.SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-process.env.VITE_SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  for (const name of names) {
+    if (value) {
+      process.env[name] = value;
+    } else if (process.env[name] === 'undefined') {
+      delete process.env[name];
+    }
+  }
+}
 
-process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-process.env.VITE_SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-
-process.env.MAKETOU_API_KEY = process.env.MAKETOU_API_KEY || process.env.VITE_MAKETOU_API_KEY;
-process.env.VITE_MAKETOU_API_KEY = process.env.MAKETOU_API_KEY || process.env.VITE_MAKETOU_API_KEY;
-
-process.env.MAKETOU_PRODUCT_ID = process.env.MAKETOU_PRODUCT_ID || process.env.VITE_MAKETOU_PRODUCT_ID;
-process.env.VITE_MAKETOU_PRODUCT_ID = process.env.MAKETOU_PRODUCT_ID || process.env.VITE_MAKETOU_PRODUCT_ID;
+syncEnvAliases('SUPABASE_URL', 'VITE_SUPABASE_URL');
+syncEnvAliases('SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY');
+syncEnvAliases('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SERVICE_ROLE', 'VITE_SUPABASE_SERVICE_ROLE_KEY');
+syncEnvAliases('MAKETOU_API_KEY', 'VITE_MAKETOU_API_KEY');
+syncEnvAliases('MAKETOU_PRODUCT_ID', 'VITE_MAKETOU_PRODUCT_ID');
 
 process.env.ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.VITE_ADMIN_EMAIL || 'bigardlamine@gmail.com';
-process.env.VITE_ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.VITE_ADMIN_EMAIL || 'bigardlamine@gmail.com';
+process.env.VITE_ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 
 const app = express();
 const PORT = 3000;
@@ -60,18 +71,27 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 
-const isSupabaseConfigured = 
-  supabaseUrl && 
-  supabaseUrl !== 'https://your-project-id.supabase.co' && 
-  supabaseAnonKey && 
-  supabaseAnonKey !== 'your-anon-public-key';
+// The URL shape is validated here, not just its presence: createClient() throws on a
+// malformed one, and at module scope that failure is unrecoverable — it takes down every
+// route rather than letting the app fall back to demo mode.
+const isSupabaseConfigured = !!(
+  supabaseUrl &&
+  /^https?:\/\//.test(supabaseUrl) &&
+  supabaseUrl !== 'https://your-project-id.supabase.co' &&
+  supabaseAnonKey &&
+  supabaseAnonKey !== 'your-anon-public-key'
+);
 
-const supabase = isSupabaseConfigured 
-  ? createClient(supabaseUrl, supabaseAnonKey)
+if (!isSupabaseConfigured) {
+  console.error('[Server] Supabase non configuré : vérifiez SUPABASE_URL / SUPABASE_ANON_KEY. L\'application démarre en mode dégradé.');
+}
+
+const supabase = isSupabaseConfigured
+  ? createClient(supabaseUrl!, supabaseAnonKey!)
   : null;
 
 const supabaseAdmin = isSupabaseConfigured && supabaseServiceRoleKey
-  ? createClient(supabaseUrl, supabaseServiceRoleKey, {
+  ? createClient(supabaseUrl!, supabaseServiceRoleKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false
@@ -1515,6 +1535,21 @@ async function reconcilePendingPayments() {
 // requests, so production relies on the /api/cron/reconcile endpoint below instead.
 setInterval(reconcilePendingPayments, 5 * 60 * 1000);
 setTimeout(reconcilePendingPayments, 20000);
+
+/**
+ * GET /api/health
+ * Reports which integrations resolved at boot, so a misconfigured deployment can be
+ * diagnosed without shell access. Booleans only — never the values themselves.
+ */
+app.get('/api/health', (_req, res) => {
+  return res.json({
+    ok: true,
+    supabase: { configured: isSupabaseConfigured, serviceRole: supabaseAdmin !== supabase },
+    maketou: { apiKey: !!process.env.MAKETOU_API_KEY, productId: !!process.env.MAKETOU_PRODUCT_ID },
+    appUrl: getAppUrl(),
+    vercel: !!process.env.VERCEL
+  });
+});
 
 /**
  * GET /api/cron/reconcile

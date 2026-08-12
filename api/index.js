@@ -315,18 +315,23 @@ var serverDb = {
 
 // server.ts
 dotenv.config();
-process.env.SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-process.env.VITE_SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-process.env.SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-process.env.VITE_SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-process.env.VITE_SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-process.env.MAKETOU_API_KEY = process.env.MAKETOU_API_KEY || process.env.VITE_MAKETOU_API_KEY;
-process.env.VITE_MAKETOU_API_KEY = process.env.MAKETOU_API_KEY || process.env.VITE_MAKETOU_API_KEY;
-process.env.MAKETOU_PRODUCT_ID = process.env.MAKETOU_PRODUCT_ID || process.env.VITE_MAKETOU_PRODUCT_ID;
-process.env.VITE_MAKETOU_PRODUCT_ID = process.env.MAKETOU_PRODUCT_ID || process.env.VITE_MAKETOU_PRODUCT_ID;
+function syncEnvAliases(...names) {
+  const value = names.map((n) => process.env[n]).find((v) => v && v !== "undefined");
+  for (const name of names) {
+    if (value) {
+      process.env[name] = value;
+    } else if (process.env[name] === "undefined") {
+      delete process.env[name];
+    }
+  }
+}
+syncEnvAliases("SUPABASE_URL", "VITE_SUPABASE_URL");
+syncEnvAliases("SUPABASE_ANON_KEY", "VITE_SUPABASE_ANON_KEY");
+syncEnvAliases("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SERVICE_ROLE", "VITE_SUPABASE_SERVICE_ROLE_KEY");
+syncEnvAliases("MAKETOU_API_KEY", "VITE_MAKETOU_API_KEY");
+syncEnvAliases("MAKETOU_PRODUCT_ID", "VITE_MAKETOU_PRODUCT_ID");
 process.env.ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.VITE_ADMIN_EMAIL || "bigardlamine@gmail.com";
-process.env.VITE_ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.VITE_ADMIN_EMAIL || "bigardlamine@gmail.com";
+process.env.VITE_ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 var app = express();
 var PORT = 3e3;
 var SUBSCRIPTION_PRICE_FCFA = 4990;
@@ -345,7 +350,10 @@ var getAppUrl = () => {
 var supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 var supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 var supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
-var isSupabaseConfigured = supabaseUrl && supabaseUrl !== "https://your-project-id.supabase.co" && supabaseAnonKey && supabaseAnonKey !== "your-anon-public-key";
+var isSupabaseConfigured = !!(supabaseUrl && /^https?:\/\//.test(supabaseUrl) && supabaseUrl !== "https://your-project-id.supabase.co" && supabaseAnonKey && supabaseAnonKey !== "your-anon-public-key");
+if (!isSupabaseConfigured) {
+  console.error("[Server] Supabase non configur\xE9 : v\xE9rifiez SUPABASE_URL / SUPABASE_ANON_KEY. L'application d\xE9marre en mode d\xE9grad\xE9.");
+}
 var supabase = isSupabaseConfigured ? createClient(supabaseUrl, supabaseAnonKey) : null;
 var supabaseAdmin = isSupabaseConfigured && supabaseServiceRoleKey ? createClient(supabaseUrl, supabaseServiceRoleKey, {
   auth: {
@@ -1286,6 +1294,15 @@ async function reconcilePendingPayments() {
 }
 setInterval(reconcilePendingPayments, 5 * 60 * 1e3);
 setTimeout(reconcilePendingPayments, 2e4);
+app.get("/api/health", (_req, res) => {
+  return res.json({
+    ok: true,
+    supabase: { configured: isSupabaseConfigured, serviceRole: supabaseAdmin !== supabase },
+    maketou: { apiKey: !!process.env.MAKETOU_API_KEY, productId: !!process.env.MAKETOU_PRODUCT_ID },
+    appUrl: getAppUrl(),
+    vercel: !!process.env.VERCEL
+  });
+});
 app.get("/api/cron/reconcile", async (req, res) => {
   const expectedSecret = process.env.CRON_SECRET;
   if (expectedSecret) {
