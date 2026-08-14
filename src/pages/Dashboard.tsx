@@ -508,6 +508,12 @@ export default function Dashboard() {
   const [profileCopied, setProfileCopied] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem('momo_sidebar_collapsed') === 'true');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  // Mobile header : le header desktop etale switcher / visite / copie / recherche sur une seule
+  // ligne, ce qui ne rentre pas sur un ecran de telephone. En mobile on garde la marque a gauche
+  // et on regroupe toutes ces actions derriere un menu "Ma boutique" + une icone de recherche.
+  const [isShopMenuOpen, setIsShopMenuOpen] = useState(false);
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const shopMenuRef = useRef<HTMLDivElement>(null);
   const [profileErrorMsg, setProfileErrorMsg] = useState<string | null>(null);
   const [profileSuccessMsg, setProfileSuccessMsg] = useState<string | null>(null);
 
@@ -1366,6 +1372,18 @@ export default function Dashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Click outside listener for the mobile "Ma boutique" dropdown
+  useEffect(() => {
+    if (!isShopMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (shopMenuRef.current && !shopMenuRef.current.contains(e.target as Node)) {
+        setIsShopMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isShopMenuOpen]);
+
   // Drag and drop handlers for main file
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -1907,13 +1925,25 @@ export default function Dashboard() {
         
         {/* Global Dashboard Top Header */}
         <header className={`flex items-center justify-between gap-2 ${themeStyles.surface} border-b ${themeStyles.border} px-4 md:px-8 py-3.5 sticky top-0 z-40 transition-colors duration-200 shadow-sm`}>
-          {/* Left part: Store Switcher Dropdown */}
+          {/* Left part: brand on mobile, store switcher on desktop */}
           <div className="flex items-center gap-3">
 
-            {/* Store Switcher Trigger Button */}
+            {/* Mobile Brand (le switcher de boutique vit dans le menu "Ma boutique" a droite) */}
+            <div className="flex md:hidden items-center gap-2 overflow-hidden">
+              <img
+                src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+                alt="MomoLink Logo"
+                className="w-8 h-8 object-contain rounded-lg shadow-sm shrink-0"
+              />
+              <span className={`font-display font-bold text-base ${themeStyles.textPrimary} tracking-tight whitespace-nowrap`}>
+                MomoLink {profile?.is_premium && <span className="text-accent-corail text-[10px] font-semibold">Pro</span>}
+              </span>
+            </div>
+
+            {/* Store Switcher Trigger Button (desktop) */}
             <button
               onClick={() => setIsSwitchModalOpen(true)}
-              className={`flex items-center justify-between gap-2 px-3 sm:px-4 py-2 rounded-xl border ${themeStyles.border} ${themeStyles.surface} hover:bg-neutral-800/5 dark:hover:bg-white/5 transition-all cursor-pointer text-left shadow-sm group w-[125px] sm:w-[220px]`}
+              className={`hidden md:flex items-center justify-between gap-2 px-3 sm:px-4 py-2 rounded-xl border ${themeStyles.border} ${themeStyles.surface} hover:bg-neutral-800/5 dark:hover:bg-white/5 transition-all cursor-pointer text-left shadow-sm group w-[125px] sm:w-[220px]`}
             >
               <div className="flex items-center gap-2 overflow-hidden w-full justify-between">
                 <div className="flex items-center gap-2 overflow-hidden">
@@ -1941,9 +1971,104 @@ export default function Dashboard() {
           </div>
 
           {/* Right Side: Actions (Visiter le profil, copy link, and profile button) */}
-          <div className="flex items-center gap-2.5">
-            {/* "Visiter le profil" Action Button with Copy Button inside a stylish Group */}
-            <div data-tour="header-visit-shop" className={`flex items-center rounded-xl overflow-hidden border ${themeStyles.border} ${isDarkMode ? 'bg-neutral-900/40' : 'bg-gray-50/50'} p-0.5 shadow-sm shrink-0`}>
+          <div className="flex items-center gap-2 sm:gap-2.5">
+
+            {/* Mobile Search Icon (deplie la barre de recherche sous le header) */}
+            <button
+              onClick={() => setIsMobileSearchOpen((v) => !v)}
+              className={`md:hidden w-9 h-9 rounded-xl border ${themeStyles.border} ${
+                isMobileSearchOpen ? 'text-accent-corail border-accent-corail/40' : themeStyles.textSecondary
+              } hover:text-accent-corail transition-all cursor-pointer flex items-center justify-center shrink-0`}
+              title="Rechercher"
+              aria-label="Rechercher"
+              aria-expanded={isMobileSearchOpen}
+            >
+              <Search size={16} />
+            </button>
+
+            {/* Mobile "Ma boutique" dropdown : visiter / copier le lien / changer de boutique */}
+            <div ref={shopMenuRef} className="md:hidden relative shrink-0">
+              <button
+                data-tour="mobile-shop-menu"
+                onClick={() => setIsShopMenuOpen((v) => !v)}
+                aria-expanded={isShopMenuOpen}
+                aria-label="Ma boutique"
+                title="Ma boutique"
+                className={`w-9 h-9 rounded-xl border ${themeStyles.border} ${
+                  isShopMenuOpen ? 'text-accent-corail border-accent-corail/40' : themeStyles.textSecondary
+                } hover:text-accent-corail transition-all cursor-pointer flex items-center justify-center shrink-0`}
+              >
+                <ShoppingBag size={16} />
+              </button>
+
+              <AnimatePresence>
+                {isShopMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                    transition={{ duration: 0.15 }}
+                    className={`absolute right-0 top-full mt-2 w-64 max-w-[80vw] rounded-2xl border ${themeStyles.border} ${themeStyles.surface} shadow-2xl p-1.5 z-50 flex flex-col gap-0.5 origin-top-right`}
+                  >
+                    <a
+                      href={`/@${username}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => setIsShopMenuOpen(false)}
+                      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold ${themeStyles.textPrimary} hover:bg-accent-corail hover:text-white transition-all cursor-pointer`}
+                    >
+                      <ArrowUpRight size={15} className="shrink-0" />
+                      <span>Visiter ma boutique</span>
+                    </a>
+
+                    <button
+                      onClick={() => {
+                        const profileUrl = `${window.location.origin}/@${username}`;
+                        navigator.clipboard.writeText(profileUrl);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold ${themeStyles.textPrimary} hover:bg-accent-corail hover:text-white transition-all cursor-pointer text-left`}
+                    >
+                      {copied ? (
+                        <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
+                      ) : (
+                        <Copy size={15} className="shrink-0" />
+                      )}
+                      <span>{copied ? 'Lien copié !' : 'Copier le lien'}</span>
+                    </button>
+
+                    <div className={`h-px my-1 mx-2 ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-200'}`} />
+
+                    <button
+                      onClick={() => {
+                        setIsShopMenuOpen(false);
+                        setIsSwitchModalOpen(true);
+                      }}
+                      className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border ${themeStyles.border} ${
+                        isDarkMode ? 'bg-neutral-900/40' : 'bg-gray-50/50'
+                      } hover:bg-neutral-800/5 dark:hover:bg-white/5 transition-all cursor-pointer text-left group`}
+                    >
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <Store size={14} className="text-accent-corail shrink-0" />
+                        <div className="flex flex-col overflow-hidden">
+                          <span className={`text-xs font-bold ${themeStyles.textPrimary} truncate`}>
+                            {displayName}
+                          </span>
+                          <span className={`text-[10px] ${themeStyles.textSecondary} truncate`}>
+                            Changer de boutique
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronsUpDown size={12} className="text-gray-400 group-hover:text-accent-corail transition-colors shrink-0" />
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* "Visiter le profil" Action Button with Copy Button inside a stylish Group (desktop) */}
+            <div data-tour="header-visit-shop" className={`hidden md:flex items-center rounded-xl overflow-hidden border ${themeStyles.border} ${isDarkMode ? 'bg-neutral-900/40' : 'bg-gray-50/50'} p-0.5 shadow-sm shrink-0`}>
               <a
                 href={`/@${username}`}
                 target="_blank"
@@ -1951,12 +2076,11 @@ export default function Dashboard() {
                 className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold ${themeStyles.textPrimary} hover:bg-accent-corail hover:text-white transition-all duration-150 cursor-pointer whitespace-nowrap`}
               >
                 <Store size={14} className="shrink-0" />
-                <span className="hidden sm:inline whitespace-nowrap">Visiter ma boutique</span>
-                <span className="sm:hidden whitespace-nowrap">Ma boutique</span>
+                <span className="whitespace-nowrap">Visiter ma boutique</span>
               </a>
-              
+
               <div className={`w-px h-5 ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-200'} shrink-0`} />
-              
+
               <button
                 onClick={() => {
                   const profileUrl = `${window.location.origin}/@${username}`;
@@ -1993,6 +2117,29 @@ export default function Dashboard() {
               )}
             </button>
           </div>
+
+          {/* Mobile Search Bar (repliee par defaut, ouverte par l'icone loupe) */}
+          <AnimatePresence>
+            {isMobileSearchOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.15 }}
+                className={`md:hidden absolute left-0 right-0 top-full ${themeStyles.surface} border-b ${themeStyles.border} px-4 py-3 shadow-sm`}
+              >
+                <div className="flex items-center relative">
+                  <Search size={14} className="absolute left-3.5 text-gray-400" />
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Trouvez n'importe quoi..."
+                    className={`w-full pl-9 pr-3 py-2.5 rounded-xl text-xs border ${themeStyles.border} bg-neutral-50/50 dark:bg-neutral-900/10 focus:border-accent-corail outline-none transition-all`}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </header>
 
         {/* 3. Mobile Bottom Navigation Bar */}

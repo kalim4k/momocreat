@@ -36,6 +36,7 @@ const TOUR_STEPS: TourStep[] = [
   },
   {
     target: 'header-visit-shop',
+    mobileTarget: 'mobile-shop-menu',
     title: 'Partagez votre boutique',
     description: "Visitez votre profil public ou copiez son lien pour le partager sur vos réseaux et commencer à vendre."
   }
