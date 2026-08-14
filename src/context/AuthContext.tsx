@@ -314,7 +314,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
 
       if (!isDemoMode && supabase) {
-        const { error: err } = await supabase
+        // `.select().single()` : on relit la ligne inserée pour recuperer l'UUID genere par
+        // Postgres. Sans ca on gardait `generatedId` en memoire alors que la base avait attribue
+        // un tout autre id — toute donnee indexee sur profile.id (cle localStorage de la visite
+        // guidee, momo_active_profile_id) devenait caduque des la reconnexion suivante.
+        const { data: inserted, error: err } = await supabase
           .from('creator_profiles')
           .insert({
             user_id: profileData.user_id,
@@ -326,10 +330,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             payout_provider: profileData.payout_provider,
             cover_url: profileData.cover_url || null,
             status: 'active'
-          });
+          })
+          .select()
+          .single();
 
         if (err) throw err;
-        setProfile(newProfile);
+        const savedProfile = (inserted ?? newProfile) as CreatorProfile;
+        setProfile(savedProfile);
+        setAllProfiles((prev) => [...prev.filter((p) => p.id !== savedProfile.id), savedProfile]);
+        localStorage.setItem('momo_active_profile_id', savedProfile.id);
         return { success: true };
       } else {
         // Mock Profile Create
@@ -448,7 +457,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
 
       if (!isDemoMode && supabase) {
-        const { error: err } = await supabase
+        // Meme raison que dans createProfile : c'est l'id renvoye par la base qui fait foi.
+        const { data: inserted, error: err } = await supabase
           .from('creator_profiles')
           .insert({
             user_id: profileData.user_id,
@@ -460,12 +470,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             payout_provider: profileData.payout_provider,
             cover_url: profileData.cover_url || null,
             status: 'active'
-          });
+          })
+          .select()
+          .single();
 
         if (err) throw err;
-        setAllProfiles(prev => [...prev, newProfile]);
-        setProfile(newProfile);
-        localStorage.setItem('momo_active_profile_id', generatedId);
+        const savedProfile = (inserted ?? newProfile) as CreatorProfile;
+        setAllProfiles(prev => [...prev, savedProfile]);
+        setProfile(savedProfile);
+        localStorage.setItem('momo_active_profile_id', savedProfile.id);
         return { success: true };
       } else {
         // Mock Additional Profile Create
