@@ -1076,7 +1076,9 @@ const FAQ_DATA = [
 function Faq() {
   const enter = useEnter();
   const reduce = useReducedMotion();
-  const [openIdx, setOpenIdx] = useState<number | null>(0);
+  // Toutes fermees a l'arrivee : une premiere reponse deja ouverte se lit comme un bug
+  // d'affichage plutot que comme une invitation a cliquer.
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
 
   return (
     <section id="faq" className="px-4 py-24 sm:py-28">
