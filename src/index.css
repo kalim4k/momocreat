@@ -91,3 +91,44 @@ body {
   -webkit-mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
 }
 
+/* ------------------------------------------------------------------ */
+/* Reglages systeme d'accessibilite                                    */
+/*                                                                     */
+/* Trois signaux independants, pas un seul. Le mouvement reduit est le  */
+/* seul que la plupart des interfaces traitent ; la transparence et le  */
+/* contraste renforce comptent autant pour les personnes concernees.    */
+/* ------------------------------------------------------------------ */
+
+/* Mouvement reduit != aucun mouvement : on retire le deplacement vestibulaire (defilement
+   automatique, oscillations) et on laisse les fondus, qui aident a comprendre. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee-infinite {
+    animation: none;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+}
+
+/* Transparence reduite : les surfaces en verre deviennent opaques et le flou disparait,
+   sinon le texte passe sur un fond mouvant illisible. */
+@media (prefers-reduced-transparency: reduce) {
+  .backdrop-blur-xl,
+  .backdrop-blur-md,
+  .backdrop-blur-sm {
+    backdrop-filter: none !important;
+    background-color: var(--color-bg-surface) !important;
+  }
+}
+
+/* Contraste renforce : fonds quasi opaques et bordure definie plutot que des filets a 70%. */
+@media (prefers-contrast: more) {
+  :root {
+    --color-border-custom: #8a8378;
+    --color-text-secondary: #3a3730;
+  }
+  .dark {
+    --color-border-custom: #6f6a62;
+    --color-text-secondary: #d6d0c4;
+  }
+}
+
