@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { motion } from 'motion/react';
+import { LOGO_URL } from '../lib/brand';
 
 interface Creator {
   id: string;
@@ -178,7 +179,7 @@ export default function BuyerPurchases() {
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <img 
-              src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+              src={LOGO_URL}
               alt="MomoLink Logo"
               className="h-6 w-6 object-contain rounded-md"
             />

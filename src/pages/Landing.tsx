@@ -67,9 +67,7 @@ import {
   Zap,
 } from 'lucide-react';
 import PlatformImpact from '../components/PlatformImpact';
-
-const LOGO_URL =
-  'https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png';
+import { LOGO_URL } from '../lib/brand';
 
 /** Encre des bandes sombres. Volontairement fixe : une bande sombre reste sombre en theme clair
  *  comme en theme sombre — c'est un choix de composition, pas une couleur de surface. */

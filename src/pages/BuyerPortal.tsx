@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Mail, ArrowLeft, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { LOGO_URL } from '../lib/brand';
 
 export default function BuyerPortal() {
   const navigate = useNavigate();
@@ -74,7 +75,7 @@ export default function BuyerPortal() {
 
         <div className="flex items-center gap-2">
           <img 
-            src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+            src={LOGO_URL}
             alt="MomoLink Logo"
             className="h-6 w-6 object-contain rounded-md"
           />

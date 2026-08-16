@@ -72,6 +72,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { LOGO_URL } from '../lib/brand';
 
 // Seed data for demo mode
 const SEEDED_PURCHASES_MOCK = [
@@ -1796,7 +1797,7 @@ export default function Dashboard() {
           <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0' : 'gap-2 px-2'} transition-all duration-300`}>
             <div className="w-8 h-8 flex items-center justify-center shrink-0">
               <img 
-                src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+                src={LOGO_URL}
                 alt="MomoLink Logo"
                 className="w-8 h-8 object-contain rounded-lg shadow-sm"
               />
@@ -1931,7 +1932,7 @@ export default function Dashboard() {
             {/* Mobile Brand (le switcher de boutique vit dans le menu "Ma boutique" a droite) */}
             <div className="flex md:hidden items-center gap-2 overflow-hidden">
               <img
-                src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+                src={LOGO_URL}
                 alt="MomoLink Logo"
                 className="w-8 h-8 object-contain rounded-lg shadow-sm shrink-0"
               />

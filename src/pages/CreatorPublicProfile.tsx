@@ -27,6 +27,7 @@ import {
   Send
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { LOGO_URL } from '../lib/brand';
 
 export default function CreatorPublicProfile() {
   const { username } = useParams<{ username: string }>();
@@ -667,7 +668,7 @@ export default function CreatorPublicProfile() {
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-3 flex-wrap">
           <Link to="/" className="flex items-center gap-1.5 opacity-90 hover:opacity-100 transition-opacity">
             <img
-              src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+              src={LOGO_URL}
               alt="MomoLink Logo"
               className="h-6 w-6 object-contain rounded-md"
             />

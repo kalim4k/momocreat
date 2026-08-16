@@ -19,6 +19,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { ToastProvider } from '../../components/admin/Toast';
+import { LOGO_URL } from '../../lib/brand';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -99,7 +100,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       <div className="md:hidden bg-bg-surface border-b border-border-custom px-4 py-3 flex items-center justify-between sticky top-0 z-40">
         <div className="flex items-center gap-3">
           <img 
-            src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+            src={LOGO_URL}
             alt="MomoLink Logo"
             className="h-7 w-7 object-contain rounded-lg"
           />
@@ -126,7 +127,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         <div className={`hidden md:flex items-center ${isAdminSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-6'} py-5 border-b border-border-custom`}>
           <div className={`flex items-center ${isAdminSidebarCollapsed ? 'justify-center' : 'gap-2.5'}`}>
             <img 
-              src="https://valqykbgglvvxmkqrenx.supabase.co/storage/v1/object/public/avatars/file_00000000588081f9b9f6b6484a7be967.png"
+              src={LOGO_URL}
               alt="MomoLink Logo"
               className="h-7 w-7 object-contain rounded-lg shadow-sm shrink-0"
             />
