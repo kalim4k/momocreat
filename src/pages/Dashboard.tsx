@@ -2790,112 +2790,114 @@ export default function Dashboard() {
                   <span className={`text-xs ${themeStyles.textSecondary}`}>Modifiez vos critères de recherche ou attendez vos premières ventes.</span>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-border-custom">
-                    <thead className="bg-black/5">
-                      <tr>
-                        <th className={`px-4 md:px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Produit</th>
-                        {/* Buyer/transaction detail columns are desktop-only: on a phone they
-                            forced a cramped horizontal scroll. The mobile view keeps the product
-                            (cover + title + amount) and the status pill, nothing else. */}
-                        <th className={`hidden md:table-cell px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Client (Tel)</th>
-                        <th className={`hidden md:table-cell px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Moyen de paiement</th>
-                        <th className={`hidden md:table-cell px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Référence</th>
-                        <th className={`hidden md:table-cell px-5 py-4.5 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Date</th>
-                        <th className={`hidden md:table-cell px-5 py-4.5 text-right text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Revenu Net</th>
-                        <th className={`px-4 md:px-5 py-4.5 text-right text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider`}>Statut</th>
-                      </tr>
-                    </thead>
-                    <tbody className={`divide-y ${themeStyles.border}`}>
-                      <AnimatePresence>
-                        {paginatedSalesList.map((p, idx) => {
-                          const title = p.contents?.title || p.title || 'Guide exclusif';
-                          const cover = p.contents?.thumbnail_url || p.contents?.preview_url || null;
-                          const statusBadge = getSaleStatusBadge(p.status);
-                          const dateString = p.created_at ? new Date(p.created_at).toLocaleDateString('fr-FR', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric'
-                          }) : 'Date inconnue';
-                          return (
-                            <motion.tr
-                              key={p.id || idx}
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.2, delay: idx * 0.03 }}
-                              className="hover:bg-black/5 transition-colors animate-fade-in"
-                            >
-                              <td className="px-4 md:px-5 py-3.5 md:py-4">
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <div className={`w-11 h-11 md:w-10 md:h-10 rounded-[10px] overflow-hidden shrink-0 border ${themeStyles.border} bg-accent-corail/10 flex items-center justify-center`}>
-                                    {cover ? (
-                                      <img
-                                        src={cover}
-                                        alt=""
-                                        referrerPolicy="no-referrer"
-                                        className="w-full h-full object-cover"
-                                      />
-                                    ) : (
-                                      <ShoppingBag size={16} className="text-accent-corail" />
-                                    )}
-                                  </div>
-                                  <div className="flex flex-col min-w-0">
-                                    <span
-                                      className={`text-xs font-semibold ${themeStyles.textPrimary} truncate max-w-[150px] sm:max-w-[220px]`}
-                                      title={title}
-                                    >
-                                      {title}
-                                    </span>
-                                    {/* The amount lives here on mobile, where its own column is hidden. */}
-                                    <span className={`md:hidden text-[11px] font-mono mt-0.5 ${themeStyles.textSecondary}`}>
-                                      {(p.creator_net_amount_fcfa || 0).toLocaleString()} FCFA
-                                    </span>
-                                  </div>
+                // table-fixed + w-full: the table always takes exactly the card's width and every
+                // cell truncates instead of pushing the table wider. It used to be min-w-full with
+                // whitespace-nowrap cells inside an overflow-x-auto, so one long payment reference
+                // (a 36-character UUID) was enough to force a horizontal scrollbar.
+                <table className="w-full table-fixed divide-y divide-border-custom">
+                  <thead className="bg-black/5">
+                    <tr>
+                      <th className={`px-4 py-4 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider whitespace-nowrap`}>Produit</th>
+                      {/* Columns appear only once there's room for them; what they'd show is folded
+                          into the product cell below that width, so nothing is lost on a narrow screen. */}
+                      <th className={`hidden lg:table-cell w-44 px-4 py-4 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider whitespace-nowrap`}>Client</th>
+                      <th className={`hidden xl:table-cell w-48 px-4 py-4 text-left text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider whitespace-nowrap`}>Référence</th>
+                      <th className={`hidden md:table-cell w-28 px-4 py-4 text-right text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider whitespace-nowrap`}>Revenu net</th>
+                      <th className={`w-[7.25rem] md:w-32 px-3 md:px-4 py-4 text-right text-[10px] font-bold ${themeStyles.textSecondary} uppercase tracking-wider whitespace-nowrap`}>Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border-custom">
+                    <AnimatePresence>
+                      {paginatedSalesList.map((p, idx) => {
+                        const title = p.contents?.title || p.title || 'Guide exclusif';
+                        const cover = p.contents?.thumbnail_url || p.contents?.preview_url || null;
+                        const statusBadge = getSaleStatusBadge(p.status);
+                        const dateString = p.created_at ? new Date(p.created_at).toLocaleDateString('fr-FR', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                        }) : 'Date inconnue';
+                        const reference = hideSensitiveSales ? '••••••••••••' : (p.payment_reference || 'REF-MOMO');
+                        const method = getSalePaymentMethod(p.payment_reference);
+                        return (
+                          <motion.tr
+                            key={p.id || idx}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.2, delay: idx * 0.03 }}
+                            className="hover:bg-black/5 transition-colors animate-fade-in"
+                          >
+                            <td className="px-4 py-3.5">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className={`w-10 h-10 rounded-[10px] overflow-hidden shrink-0 border ${themeStyles.border} bg-accent-corail/10 flex items-center justify-center`}>
+                                  {cover ? (
+                                    <img
+                                      src={cover}
+                                      alt=""
+                                      referrerPolicy="no-referrer"
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <ShoppingBag size={16} className="text-accent-corail" />
+                                  )}
                                 </div>
-                              </td>
-                              <td className={`hidden md:table-cell px-5 py-4 whitespace-nowrap text-xs font-mono font-medium ${themeStyles.textPrimary}`}>
-                                {hideSensitiveSales ? '••• ••• •••' : (p.buyer_phone || 'Non renseigné')}
-                              </td>
-                              <td className="hidden md:table-cell px-5 py-4 whitespace-nowrap">
+                                <div className="flex flex-col min-w-0">
+                                  <span
+                                    className={`text-xs font-semibold ${themeStyles.textPrimary} truncate`}
+                                    title={title}
+                                  >
+                                    {title}
+                                  </span>
+                                  {/* Amount (phones only, where its column is hidden), date, and the
+                                      reference until it gets its own column at xl. */}
+                                  <span className={`text-[11px] mt-0.5 ${themeStyles.textSecondary} truncate`}>
+                                    <span className="md:hidden font-mono">{(p.creator_net_amount_fcfa || 0).toLocaleString()} FCFA · </span>
+                                    {dateString}
+                                    <span className="hidden md:inline xl:hidden font-mono" title={hideSensitiveSales ? undefined : reference}> · {reference}</span>
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="hidden lg:table-cell px-4 py-3.5">
+                              <div className="flex flex-col gap-1 min-w-0">
+                                <span className={`text-xs font-mono font-medium ${themeStyles.textPrimary} truncate`}>
+                                  {hideSensitiveSales ? '••• ••• •••' : (p.buyer_phone || 'Non renseigné')}
+                                </span>
                                 {hideSensitiveSales ? (
-                                  <span className={`text-xs font-mono ${themeStyles.textSecondary}`}>••••••</span>
-                                ) : (() => {
-                                  const method = getSalePaymentMethod(p.payment_reference);
-                                  return (
-                                    <div className="flex items-center gap-2">
-                                      {method.logo && (
-                                        <img src={method.logo} alt="" className="h-4 w-4 object-contain rounded-sm bg-white p-0.5 shrink-0" />
-                                      )}
-                                      <span className={`text-xs font-medium ${themeStyles.textPrimary}`}>{method.label}</span>
-                                    </div>
-                                  );
-                                })()}
-                              </td>
-                              <td className={`hidden md:table-cell px-5 py-4 whitespace-nowrap text-xs font-mono ${themeStyles.textSecondary}`}>
-                                {hideSensitiveSales ? '••••••••••••' : (p.payment_reference || 'REF-MOMO')}
-                              </td>
-                              <td className={`hidden md:table-cell px-5 py-4 whitespace-nowrap text-xs ${themeStyles.textSecondary}`}>
-                                {dateString}
-                              </td>
-                              <td className="hidden md:table-cell px-5 py-4 whitespace-nowrap text-right">
-                                <span className={`text-xs font-bold ${isDarkMode ? 'text-success-gold' : 'text-neutral-950'} font-mono`}>
-                                  +{(p.creator_net_amount_fcfa || 0).toLocaleString()} F
-                                </span>
-                              </td>
-                              <td className="px-4 md:px-5 py-3.5 md:py-4 whitespace-nowrap text-right">
-                                <span className={`inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-full border text-[11px] font-bold ${statusBadge.className}`}>
-                                  <statusBadge.icon size={12} strokeWidth={3} className="shrink-0" />
-                                  {statusBadge.label}
-                                </span>
-                              </td>
-                            </motion.tr>
-                          );
-                        })}
-                      </AnimatePresence>
-                    </tbody>
-                  </table>
-                </div>
+                                  <span className={`text-[11px] font-mono ${themeStyles.textSecondary}`}>••••••</span>
+                                ) : (
+                                  <span className="flex items-center gap-1.5 min-w-0">
+                                    {method.logo && (
+                                      <img src={method.logo} alt="" className="h-4 w-4 object-contain rounded-sm bg-white p-0.5 shrink-0" />
+                                    )}
+                                    <span className={`text-[11px] font-medium ${themeStyles.textSecondary} truncate`}>{method.label}</span>
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className={`hidden xl:table-cell px-4 py-3.5 text-xs font-mono ${themeStyles.textSecondary}`}>
+                              <span className="block truncate" title={hideSensitiveSales ? undefined : reference}>
+                                {reference}
+                              </span>
+                            </td>
+                            <td className="hidden md:table-cell px-4 py-3.5 whitespace-nowrap text-right">
+                              <span className={`text-xs font-bold ${isDarkMode ? 'text-success-gold' : 'text-neutral-950'} font-mono`}>
+                                +{(p.creator_net_amount_fcfa || 0).toLocaleString()} F
+                              </span>
+                            </td>
+                            <td className="px-3 md:px-4 py-3.5 whitespace-nowrap text-right">
+                              <span className={`inline-flex items-center gap-1 md:gap-1.5 pl-1.5 pr-2 md:pl-2 md:pr-2.5 py-1.5 rounded-full border text-[11px] font-bold ${statusBadge.className}`}>
+                                <statusBadge.icon size={12} strokeWidth={3} className="shrink-0" />
+                                {statusBadge.label}
+                              </span>
+                            </td>
+                          </motion.tr>
+                        );
+                      })}
+                    </AnimatePresence>
+                  </tbody>
+                </table>
               )}
             </div>
 
