@@ -56,7 +56,7 @@ export default function BuyerPortal() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAFAF8] text-[#1A1815] flex flex-col justify-between items-center px-4 py-8 relative overflow-hidden font-sans">
+    <div className="min-h-screen bg-[#FAF8FC] text-[#1D1327] flex flex-col justify-between items-center px-4 py-8 relative overflow-hidden font-sans">
       
       {/* Ambient background decoration */}
       <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-accent-corail/5 blur-[120px] pointer-events-none" />

@@ -105,7 +105,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
             className="h-7 w-7 object-contain rounded-lg"
           />
           <span className="font-bold text-xl tracking-tight text-text-primary">Momo<span className="text-accent-corail">Link</span></span>
-          <span className="bg-[#FF5252] text-white text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide uppercase">Admin</span>
+          <span className="bg-[#7C3AED] text-white text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide uppercase">Admin</span>
         </div>
         <button 
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -134,7 +134,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
             {!isAdminSidebarCollapsed && (
               <>
                 <span className="font-bold text-xl tracking-tight text-text-primary">Momo<span className="text-accent-corail">Link</span></span>
-                <span className="bg-[#FF5252] text-white text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide uppercase">Admin</span>
+                <span className="bg-[#7C3AED] text-white text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide uppercase">Admin</span>
               </>
             )}
           </div>

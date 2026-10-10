@@ -1906,7 +1906,7 @@ export default function Dashboard() {
                 return newVal;
               });
             }}
-            className={`flex items-center ${isSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-4 py-2.5'} rounded-[12px] text-xs font-semibold ${themeStyles.textSecondary} hover:text-accent-corail hover:bg-neutral-800/5 dark:hover:bg-neutral-800/30 transition-all duration-200 border-t ${themeStyles.border} mt-1 pt-4 cursor-pointer`}
+            className={`flex items-center ${isSidebarCollapsed ? 'justify-center p-3' : 'gap-3 px-4 py-2.5'} rounded-[12px] text-xs font-semibold ${themeStyles.textSecondary} hover:text-accent-corail hover:bg-neutral-800/5 dark:hover:bg-bg-surface-hover transition-all duration-200 border-t ${themeStyles.border} mt-1 pt-4 cursor-pointer`}
             title={isSidebarCollapsed ? "Développer le menu" : "Réduire le menu"}
           >
             {isSidebarCollapsed ? (
@@ -1964,9 +1964,9 @@ export default function Dashboard() {
             <input
               type="text"
               placeholder="Trouvez n'importe quoi : Appuyez sur ⌘K"
-              className={`w-full pl-9 pr-12 py-2 rounded-xl text-xs border ${themeStyles.border} bg-neutral-50/50 dark:bg-neutral-900/10 focus:border-accent-corail outline-none transition-all`}
+              className={`w-full pl-9 pr-12 py-2 rounded-xl text-xs border ${themeStyles.border} bg-neutral-50/50 dark:bg-bg-primary focus:border-accent-corail outline-none transition-all`}
             />
-            <div className={`absolute right-2 px-1.5 py-0.5 rounded border ${themeStyles.border} bg-neutral-100 dark:bg-neutral-800 text-[9px] font-mono text-neutral-400`}>
+            <div className={`absolute right-2 px-1.5 py-0.5 rounded border ${themeStyles.border} bg-neutral-100 dark:bg-bg-surface-hover text-[9px] font-mono text-neutral-400`}>
               ⌘K
             </div>
           </div>
@@ -2039,7 +2039,7 @@ export default function Dashboard() {
                       <span>{copied ? 'Lien copié !' : 'Copier le lien'}</span>
                     </button>
 
-                    <div className={`h-px my-1 mx-2 ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-200'}`} />
+                    <div className={`h-px my-1 mx-2 ${isDarkMode ? 'bg-bg-surface-hover' : 'bg-gray-200'}`} />
 
                     <button
                       onClick={() => {
@@ -2047,7 +2047,7 @@ export default function Dashboard() {
                         setIsSwitchModalOpen(true);
                       }}
                       className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border ${themeStyles.border} ${
-                        isDarkMode ? 'bg-neutral-900/40' : 'bg-gray-50/50'
+                        isDarkMode ? 'bg-bg-primary' : 'bg-gray-50/50'
                       } hover:bg-neutral-800/5 dark:hover:bg-white/5 transition-all cursor-pointer text-left group`}
                     >
                       <div className="flex items-center gap-2 overflow-hidden">
@@ -2069,7 +2069,7 @@ export default function Dashboard() {
             </div>
 
             {/* "Visiter le profil" Action Button with Copy Button inside a stylish Group (desktop) */}
-            <div data-tour="header-visit-shop" className={`hidden md:flex items-center rounded-xl overflow-hidden border ${themeStyles.border} ${isDarkMode ? 'bg-neutral-900/40' : 'bg-gray-50/50'} p-0.5 shadow-sm shrink-0`}>
+            <div data-tour="header-visit-shop" className={`hidden md:flex items-center rounded-xl overflow-hidden border ${themeStyles.border} ${isDarkMode ? 'bg-bg-primary' : 'bg-gray-50/50'} p-0.5 shadow-sm shrink-0`}>
               <a
                 href={`/@${username}`}
                 target="_blank"
@@ -2080,7 +2080,7 @@ export default function Dashboard() {
                 <span className="whitespace-nowrap">Visiter ma boutique</span>
               </a>
 
-              <div className={`w-px h-5 ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-200'} shrink-0`} />
+              <div className={`w-px h-5 ${isDarkMode ? 'bg-bg-surface-hover' : 'bg-gray-200'} shrink-0`} />
 
               <button
                 onClick={() => {
@@ -2089,7 +2089,7 @@ export default function Dashboard() {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 2000);
                 }}
-                className={`p-1.5 rounded-lg ${themeStyles.textSecondary} hover:text-accent-corail transition-all hover:bg-neutral-800/10 dark:hover:bg-neutral-800/50 cursor-pointer flex items-center justify-center shrink-0`}
+                className={`p-1.5 rounded-lg ${themeStyles.textSecondary} hover:text-accent-corail transition-all hover:bg-neutral-800/10 dark:hover:bg-bg-surface-hover cursor-pointer flex items-center justify-center shrink-0`}
                 title="Copier le lien"
               >
                 {copied ? (
@@ -2103,7 +2103,7 @@ export default function Dashboard() {
             {/* Profile Avatar Button */}
             <button
               onClick={() => navigate('/dashboard/profile')}
-              className={`w-9 h-9 rounded-xl border ${themeStyles.border} ${themeStyles.textSecondary} hover:text-accent-corail hover:bg-neutral-800/10 dark:hover:bg-neutral-800/50 transition-all cursor-pointer flex items-center justify-center overflow-hidden`}
+              className={`w-9 h-9 rounded-xl border ${themeStyles.border} ${themeStyles.textSecondary} hover:text-accent-corail hover:bg-neutral-800/10 dark:hover:bg-bg-surface-hover transition-all cursor-pointer flex items-center justify-center overflow-hidden`}
               title="Paramètres de mon profil"
             >
               {profile?.avatar_url ? (
@@ -2135,7 +2135,7 @@ export default function Dashboard() {
                     type="text"
                     autoFocus
                     placeholder="Trouvez n'importe quoi..."
-                    className={`w-full pl-9 pr-3 py-2.5 rounded-xl text-xs border ${themeStyles.border} bg-neutral-50/50 dark:bg-neutral-900/10 focus:border-accent-corail outline-none transition-all`}
+                    className={`w-full pl-9 pr-3 py-2.5 rounded-xl text-xs border ${themeStyles.border} bg-neutral-50/50 dark:bg-bg-primary focus:border-accent-corail outline-none transition-all`}
                   />
                 </div>
               </motion.div>
@@ -2225,7 +2225,7 @@ export default function Dashboard() {
 
 
                   {/* Creator Info Profile Card */}
-                  <div className={`flex items-center gap-3 p-3 rounded-2xl border ${themeStyles.border} ${isDarkMode ? 'bg-neutral-900/40' : 'bg-gray-50/50'}`}>
+                  <div className={`flex items-center gap-3 p-3 rounded-2xl border ${themeStyles.border} ${isDarkMode ? 'bg-bg-primary' : 'bg-gray-50/50'}`}>
                     <div 
                       onClick={() => {
                         setIsMobileMenuOpen(false);
@@ -2518,29 +2518,29 @@ export default function Dashboard() {
                     >
                       <defs>
                         <linearGradient id="colorRevenu" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#FF5252" stopOpacity={0.2}/>
-                          <stop offset="95%" stopColor="#FF5252" stopOpacity={0}/>
+                          <stop offset="5%" stopColor="#7C3AED" stopOpacity={0.2}/>
+                          <stop offset="95%" stopColor="#7C3AED" stopOpacity={0}/>
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#33302c' : '#e5e5e0'} />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#322746' : '#E8E2F0'} />
                       <XAxis 
                         dataKey="date" 
                         tickLine={false} 
                         axisLine={false} 
-                        stroke={isDarkMode ? '#a19e99' : '#73706b'}
+                        stroke={isDarkMode ? '#AFA2C3' : '#645878'}
                       />
                       <YAxis 
                         tickLine={false} 
                         axisLine={false} 
-                        stroke={isDarkMode ? '#a19e99' : '#73706b'}
+                        stroke={isDarkMode ? '#AFA2C3' : '#645878'}
                         tickFormatter={(value) => `${value.toLocaleString()}`}
                       />
                       <Tooltip 
                         contentStyle={{ 
-                          backgroundColor: isDarkMode ? '#1e1c1a' : '#ffffff', 
-                          borderColor: isDarkMode ? '#33302c' : '#e5e5e0',
+                          backgroundColor: isDarkMode ? '#1B1325' : '#ffffff', 
+                          borderColor: isDarkMode ? '#322746' : '#E8E2F0',
                           borderRadius: '12px',
-                          color: isDarkMode ? '#ffffff' : '#1A1815'
+                          color: isDarkMode ? '#ffffff' : '#1D1327'
                         }}
                         formatter={(value: any) => [`${value.toLocaleString()} FCFA`, 'Revenu']}
                         labelFormatter={(label) => `Date : ${label}`}
@@ -2548,7 +2548,7 @@ export default function Dashboard() {
                       <Area 
                         type="monotone" 
                         dataKey="revenu" 
-                        stroke="#FF5252" 
+                        stroke="#7C3AED" 
                         strokeWidth={2.5}
                         fillOpacity={1} 
                         fill="url(#colorRevenu)" 
@@ -3095,7 +3095,7 @@ export default function Dashboard() {
                     className={`flex items-center gap-2 px-4 py-2.5 rounded-[12px] text-white text-xs font-semibold shadow-md transition-all duration-200 active:scale-95 ${
                       isSubscribed()
                         ? 'bg-accent-corail hover:bg-accent-corail-hover cursor-pointer'
-                        : 'bg-neutral-300 dark:bg-neutral-800 opacity-50 cursor-not-allowed'
+                        : 'bg-neutral-300 dark:bg-bg-surface-hover opacity-50 cursor-not-allowed'
                     }`}
                   >
                     <Plus size={16} />
@@ -3358,7 +3358,7 @@ export default function Dashboard() {
                             type="button"
                             disabled={isSubmitting}
                             onClick={() => handleCreateContent('draft')}
-                            className={`px-4 py-2.5 rounded-[12px] text-xs font-semibold ${isDarkMode ? 'bg-[#2E2A24] hover:bg-[#3E3A34] text-text-primary' : 'bg-gray-100 hover:bg-gray-200 text-light-text-primary'} transition-all disabled:opacity-50 cursor-pointer`}
+                            className={`px-4 py-2.5 rounded-[12px] text-xs font-semibold ${isDarkMode ? 'bg-[#2A1F38] hover:bg-[#3A2C4E] text-text-primary' : 'bg-gray-100 hover:bg-gray-200 text-light-text-primary'} transition-all disabled:opacity-50 cursor-pointer`}
                           >
                             {isSubmitting ? 'Enregistrement...' : 'Enregistrer en brouillon'}
                           </button>
@@ -3419,7 +3419,7 @@ export default function Dashboard() {
                       className={`flex items-center gap-2 px-5 py-3 rounded-[12px] text-white text-xs font-bold shadow-lg transition-transform duration-150 active:scale-95 ${
                         isSubscribed()
                           ? 'bg-accent-corail hover:bg-accent-corail-hover cursor-pointer'
-                          : 'bg-neutral-300 dark:bg-neutral-800 opacity-50 cursor-not-allowed'
+                          : 'bg-neutral-300 dark:bg-bg-surface-hover opacity-50 cursor-not-allowed'
                       }`}
                     >
                       <Plus size={16} />
@@ -3442,7 +3442,7 @@ export default function Dashboard() {
                 {contentsList.map((content) => (
                   <div
                     key={content.id}
-                    className={`${themeStyles.surface} border rounded-[20px] p-4 flex flex-col justify-between gap-4 relative shadow-md group hover:border-[#FF6B4A]/40 transition-all duration-300`}
+                    className={`${themeStyles.surface} border rounded-[20px] p-4 flex flex-col justify-between gap-4 relative shadow-md group hover:border-accent-corail/40 transition-all duration-300`}
                   >
                     
                     {/* Top: Info & Actions dots */}
@@ -3450,7 +3450,7 @@ export default function Dashboard() {
                       
                       <div className="flex items-center gap-3 min-w-0">
                         {/* Thumbnail or File Type Icon */}
-                        <div className={`w-12 h-12 rounded-[12px] ${isDarkMode ? 'bg-[#14120F]' : 'bg-gray-50'} flex items-center justify-center shrink-0 border ${themeStyles.border} overflow-hidden`}>
+                        <div className={`w-12 h-12 rounded-[12px] ${isDarkMode ? 'bg-[#120C19]' : 'bg-gray-50'} flex items-center justify-center shrink-0 border ${themeStyles.border} overflow-hidden`}>
                           {content.thumbnail_url || content.preview_url ? (
                             <img
                               src={content.thumbnail_url || content.preview_url || undefined}
@@ -3560,7 +3560,7 @@ export default function Dashboard() {
                       {/* Price in corail */}
                       <div className="flex flex-col">
                         <span className={`text-[9px] uppercase tracking-wider ${themeStyles.textSecondary} font-semibold`}>Prix</span>
-                        <span className="text-sm font-extrabold text-[#FF6B4A] font-mono">
+                        <span className="text-sm font-extrabold text-accent-corail font-mono">
                           {content.price_fcfa.toLocaleString()} FCFA
                         </span>
                       </div>
@@ -3568,11 +3568,11 @@ export default function Dashboard() {
                       {/* Badges */}
                       <div className="flex items-center gap-2">
                         {content.status === 'published' ? (
-                          <span className="px-2.5 py-0.5 rounded-full bg-[#F2B84B] text-[#14120F] text-[9px] font-extrabold uppercase tracking-widest shadow-sm">
+                          <span className="px-2.5 py-0.5 rounded-full bg-[#FFB020] text-[#120C19] text-[9px] font-extrabold uppercase tracking-widest shadow-sm">
                             Publié
                           </span>
                         ) : content.status === 'archived' ? (
-                          <span className={`px-2.5 py-0.5 rounded-full ${isDarkMode ? 'bg-[#2E2A24] text-amber-500 border border-amber-500/25' : 'bg-amber-100 text-amber-700 border border-amber-200'} text-[9px] font-bold uppercase tracking-widest`}>
+                          <span className={`px-2.5 py-0.5 rounded-full ${isDarkMode ? 'bg-[#2A1F38] text-amber-500 border border-amber-500/25' : 'bg-amber-100 text-amber-700 border border-amber-200'} text-[9px] font-bold uppercase tracking-widest`}>
                             Archivé
                           </span>
                         ) : content.auto_drafted_by_subscription ? (
@@ -3580,17 +3580,17 @@ export default function Dashboard() {
                             <span className="px-2.5 py-1 rounded-full bg-red-950/40 text-red-400 border border-red-500/20 text-[9px] font-bold uppercase tracking-wider text-center">
                               Dépublié — abonnement expiré
                             </span>
-                            <Link to="/dashboard/subscription" className="text-[9px] text-[#FF5252] hover:underline font-bold">
+                            <Link to="/dashboard/subscription" className="text-[9px] text-accent-corail hover:underline font-bold">
                               Se réabonner
                             </Link>
                           </div>
                         ) : (
-                          <span className={`px-2.5 py-0.5 rounded-full ${isDarkMode ? 'bg-[#2E2A24] text-[#A8A296]' : 'bg-gray-100 text-gray-600'} text-[9px] font-bold uppercase tracking-widest`}>
+                          <span className={`px-2.5 py-0.5 rounded-full ${isDarkMode ? 'bg-[#2A1F38] text-[#AFA2C3]' : 'bg-gray-100 text-gray-600'} text-[9px] font-bold uppercase tracking-widest`}>
                             Brouillon
                           </span>
                         )}
                         
-                        <span className={`text-[10px] ${themeStyles.textSecondary} uppercase font-bold px-2 py-0.5 ${isDarkMode ? 'bg-[#14120F]' : 'bg-gray-100'} rounded-md border ${themeStyles.border} font-mono shrink-0`}>
+                        <span className={`text-[10px] ${themeStyles.textSecondary} uppercase font-bold px-2 py-0.5 ${isDarkMode ? 'bg-[#120C19]' : 'bg-gray-100'} rounded-md border ${themeStyles.border} font-mono shrink-0`}>
                           {content.content_type}
                         </span>
                       </div>
@@ -3667,7 +3667,7 @@ export default function Dashboard() {
                     </div>
 
                     {profile?.payout_phone_number ? (
-                      <div className={`p-3 rounded-[16px] ${isDarkMode ? 'bg-[#14120F]' : 'bg-gray-50'} flex items-center justify-between border ${themeStyles.border}`}>
+                      <div className={`p-3 rounded-[16px] ${isDarkMode ? 'bg-[#120C19]' : 'bg-gray-50'} flex items-center justify-between border ${themeStyles.border}`}>
                         <div className="flex items-center gap-2.5 min-w-0">
                           {getPayoutProviderLogo(profile.payout_provider) ? (
                             <img 
@@ -3715,7 +3715,7 @@ export default function Dashboard() {
                         className={`w-full py-3 rounded-[16px] text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 active:scale-95 ${
                           availableBalance >= 5000 && isSubscribed()
                             ? 'bg-accent-corail hover:bg-accent-corail-hover cursor-pointer'
-                            : 'bg-neutral-300 dark:bg-neutral-800 opacity-50 cursor-not-allowed'
+                            : 'bg-neutral-300 dark:bg-bg-surface-hover opacity-50 cursor-not-allowed'
                         }`}
                       >
                         <Wallet size={14} />
@@ -3739,7 +3739,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Subtitle / Help Box */}
-                <div className={`p-4 rounded-[20px] ${isDarkMode ? 'bg-[#14120F]' : 'bg-gray-50'} border ${themeStyles.border} flex flex-col gap-2`}>
+                <div className={`p-4 rounded-[20px] ${isDarkMode ? 'bg-[#120C19]' : 'bg-gray-50'} border ${themeStyles.border} flex flex-col gap-2`}>
                   <h4 className={`text-xs font-bold ${themeStyles.textPrimary}`}>Comment ça marche ?</h4>
                   <p className={`text-[11px] ${themeStyles.textSecondary} leading-relaxed`}>
                     Chaque vente de votre profil génère des revenus nets crédités sur votre compte. Vous pouvez demander un transfert vers votre Mobile Money (Wave, Orange, MTN, Moov) dès que votre solde atteint 5 000 FCFA. Les demandes sont traitées sous 24-48h ouvrées de manière sécurisée.
@@ -3888,7 +3888,7 @@ export default function Dashboard() {
                         </div>
                       </div>
 
-                      <div className={`p-4 rounded-[20px] ${isDarkMode ? 'bg-[#14120F]' : 'bg-gray-50'} border ${themeStyles.border} flex flex-col gap-2`}>
+                      <div className={`p-4 rounded-[20px] ${isDarkMode ? 'bg-[#120C19]' : 'bg-gray-50'} border ${themeStyles.border} flex flex-col gap-2`}>
                         <div className="flex justify-between items-center text-xs">
                           <span className={`${themeStyles.textSecondary}`}>Mode de versement</span>
                           <span className={`font-bold ${themeStyles.textPrimary}`}>{getPayoutProviderLabel(profile?.payout_provider)}</span>
@@ -4019,7 +4019,7 @@ export default function Dashboard() {
 
                 {/* Photo de profil */}
                 <div className="flex items-center gap-5">
-                  <div className="relative group w-20 h-20 rounded-full overflow-hidden border-2 border-dashed border-gray-300 dark:border-border-custom bg-gray-50/50 dark:bg-[#1E1B17]/30 flex flex-col items-center justify-center cursor-pointer transition-all hover:bg-gray-100/50 shrink-0">
+                  <div className="relative group w-20 h-20 rounded-full overflow-hidden border-2 border-dashed border-gray-300 dark:border-border-custom bg-gray-50/50 dark:bg-[#1B1325]/30 flex flex-col items-center justify-center cursor-pointer transition-all hover:bg-gray-100/50 shrink-0">
                     {avatarPreview || profileAvatarUrl ? (
                       <>
                         <img 
@@ -4076,7 +4076,7 @@ export default function Dashboard() {
                     Photo de couverture
                   </label>
                   
-                  <div className="relative group rounded-xl overflow-hidden border border-dashed border-gray-300 dark:border-border-custom bg-gray-50/50 dark:bg-[#1E1B17]/30 h-36 flex flex-col items-center justify-center cursor-pointer transition-all hover:bg-gray-100/50">
+                  <div className="relative group rounded-xl overflow-hidden border border-dashed border-gray-300 dark:border-border-custom bg-gray-50/50 dark:bg-[#1B1325]/30 h-36 flex flex-col items-center justify-center cursor-pointer transition-all hover:bg-gray-100/50">
                     {coverPreview || profileCoverUrl ? (
                       <>
                         <img 
@@ -4394,7 +4394,7 @@ export default function Dashboard() {
 
                     {/* CASE C/D — Inactive */}
                     {(getSubCase() === 'C' || getSubCase() === 'D') && (
-                      <span className={`px-2.5 py-1 rounded-full border ${themeStyles.border} text-[10px] font-bold uppercase tracking-wider ${themeStyles.textSecondary} flex items-center gap-1.5 ${isDarkMode ? 'bg-neutral-900/50' : 'bg-gray-50'}`}>
+                      <span className={`px-2.5 py-1 rounded-full border ${themeStyles.border} text-[10px] font-bold uppercase tracking-wider ${themeStyles.textSecondary} flex items-center gap-1.5 ${isDarkMode ? 'bg-bg-primary' : 'bg-gray-50'}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${isDarkMode ? 'bg-neutral-500' : 'bg-gray-400'}`} />
                         {getSubCase() === 'D' ? "Non abonné" : "Désactivé"}
                       </span>
@@ -4423,7 +4423,7 @@ export default function Dashboard() {
 
                         {/* Progress Bar */}
                         <div className="flex flex-col gap-2">
-                          <div className={`w-full h-3 rounded-full ${isDarkMode ? 'bg-neutral-800' : 'bg-gray-100'} overflow-hidden`}>
+                          <div className={`w-full h-3 rounded-full ${isDarkMode ? 'bg-bg-surface-hover' : 'bg-gray-100'} overflow-hidden`}>
                             <div
                               className="h-full bg-accent-corail transition-all duration-300"
                               style={{ width: `${progressPercent}%` }}
@@ -4437,7 +4437,7 @@ export default function Dashboard() {
 
                         {/* Renewal notice if days remaining is <= 5 */}
                         {daysRemaining <= 5 && (
-                          <div className={`p-4 rounded-[16px] border ${themeStyles.border} ${isDarkMode ? 'bg-neutral-900/30' : 'bg-gray-50/50'} text-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3`}>
+                          <div className={`p-4 rounded-[16px] border ${themeStyles.border} ${isDarkMode ? 'bg-bg-primary' : 'bg-gray-50/50'} text-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3`}>
                             <div className="flex gap-2.5">
                               <span className="text-amber-500 mt-0.5 font-bold">⚠️</span>
                               <div className="flex flex-col gap-0.5">
@@ -4466,7 +4466,7 @@ export default function Dashboard() {
 
                     return (
                       <div className="flex flex-col gap-6">
-                        <div className={`p-4.5 rounded-[20px] border ${themeStyles.border} ${isDarkMode ? 'bg-neutral-900/30' : 'bg-gray-50/50'} text-xs flex flex-col gap-3`}>
+                        <div className={`p-4.5 rounded-[20px] border ${themeStyles.border} ${isDarkMode ? 'bg-bg-primary' : 'bg-gray-50/50'} text-xs flex flex-col gap-3`}>
                           <div className="flex items-center gap-2.5 text-amber-500 font-semibold text-sm">
                             <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                             <span>Période de grâce active ({graceDaysRemaining} jours restants)</span>
@@ -4523,7 +4523,7 @@ export default function Dashboard() {
                         <h4 className={`text-xs font-bold ${themeStyles.textPrimary} uppercase tracking-wider`}>Avantages & Statut</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
                           <div className="flex items-start gap-2.5">
-                            <div className={`p-1 rounded-full shrink-0 mt-0.5 ${isDarkMode ? 'bg-neutral-800 text-neutral-500' : 'bg-gray-100 text-gray-400'}`}>
+                            <div className={`p-1 rounded-full shrink-0 mt-0.5 ${isDarkMode ? 'bg-bg-surface-hover text-text-secondary' : 'bg-gray-100 text-gray-400'}`}>
                               <X size={12} />
                             </div>
                             <div className="flex flex-col gap-0.5">
@@ -4533,7 +4533,7 @@ export default function Dashboard() {
                           </div>
 
                           <div className="flex items-start gap-2.5">
-                            <div className={`p-1 rounded-full shrink-0 mt-0.5 ${isDarkMode ? 'bg-neutral-800 text-neutral-500' : 'bg-gray-100 text-gray-400'}`}>
+                            <div className={`p-1 rounded-full shrink-0 mt-0.5 ${isDarkMode ? 'bg-bg-surface-hover text-text-secondary' : 'bg-gray-100 text-gray-400'}`}>
                               <X size={12} />
                             </div>
                             <div className="flex flex-col gap-0.5">
@@ -4543,7 +4543,7 @@ export default function Dashboard() {
                           </div>
 
                           <div className="flex items-start gap-2.5">
-                            <div className={`p-1 rounded-full shrink-0 mt-0.5 ${isDarkMode ? 'bg-neutral-800 text-neutral-500' : 'bg-gray-100 text-gray-400'}`}>
+                            <div className={`p-1 rounded-full shrink-0 mt-0.5 ${isDarkMode ? 'bg-bg-surface-hover text-text-secondary' : 'bg-gray-100 text-gray-400'}`}>
                               <X size={12} />
                             </div>
                             <div className="flex flex-col gap-0.5">
@@ -4594,16 +4594,16 @@ export default function Dashboard() {
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs">
                           <thead>
-                            <tr className={`border-b ${themeStyles.border} ${isDarkMode ? 'bg-[#14120F]' : 'bg-gray-50'} ${themeStyles.textSecondary} font-bold uppercase tracking-wider text-[10px]`}>
+                            <tr className={`border-b ${themeStyles.border} ${isDarkMode ? 'bg-[#120C19]' : 'bg-gray-50'} ${themeStyles.textSecondary} font-bold uppercase tracking-wider text-[10px]`}>
                               <th className="p-4">Date de début</th>
                               <th className="p-4">Date de fin</th>
                               <th className="p-4">Montant</th>
                               <th className="p-4">Statut</th>
                             </tr>
                           </thead>
-                          <tbody className={`divide-y ${isDarkMode ? 'divide-neutral-800' : 'divide-gray-100'}`}>
+                          <tbody className={`divide-y ${isDarkMode ? 'divide-border-custom' : 'divide-gray-100'}`}>
                             {subscriptionsList.map((sub, idx) => (
-                              <tr key={sub.id || idx} className={`${isDarkMode ? 'hover:bg-neutral-900/30' : 'hover:bg-gray-50/50'} transition-colors font-mono`}>
+                              <tr key={sub.id || idx} className={`${isDarkMode ? 'hover:bg-bg-surface-hover/50' : 'hover:bg-gray-50/50'} transition-colors font-mono`}>
                                 <td className={`p-4 ${themeStyles.textPrimary}`}>
                                   {new Date(sub.start_date || sub.startDate).toLocaleDateString('fr-FR')}
                                 </td>
@@ -4623,7 +4623,7 @@ export default function Dashboard() {
                                       Expiré
                                     </span>
                                   ) : (
-                                    <span className={`px-2 py-0.5 rounded border text-[10px] font-bold uppercase ${isDarkMode ? 'bg-neutral-800 text-neutral-400 border-neutral-700' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                                    <span className={`px-2 py-0.5 rounded border text-[10px] font-bold uppercase ${isDarkMode ? 'bg-bg-surface-hover text-text-secondary border-border-custom' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
                                       {sub.status}
                                     </span>
                                   )}
@@ -4682,11 +4682,11 @@ export default function Dashboard() {
                       className={`flex items-center justify-between p-3.5 rounded-xl border ${
                         isActive 
                           ? 'border-accent-corail/30 bg-accent-corail/5 font-bold' 
-                          : `${themeStyles.border} bg-neutral-50/50 dark:bg-neutral-900/10 hover:bg-neutral-800/5 dark:hover:bg-white/5`
+                          : `${themeStyles.border} bg-neutral-50/50 dark:bg-bg-primary hover:bg-neutral-800/5 dark:hover:bg-white/5`
                       } transition-all cursor-pointer group`}
                     >
                       <div className="flex items-center gap-2.5 overflow-hidden">
-                        <div className={`w-8 h-8 rounded-lg ${isActive ? 'bg-accent-corail/15 text-accent-corail' : 'bg-neutral-800/10 dark:bg-neutral-800/50 text-neutral-400'} flex items-center justify-center shrink-0`}>
+                        <div className={`w-8 h-8 rounded-lg ${isActive ? 'bg-accent-corail/15 text-accent-corail' : 'bg-neutral-800/10 dark:bg-bg-surface-hover text-neutral-400'} flex items-center justify-center shrink-0`}>
                           <Store size={14} />
                         </div>
                         <div className="flex flex-col overflow-hidden">
@@ -4775,7 +4775,7 @@ export default function Dashboard() {
                         .replace(/[^a-z0-9]/g, '');
                       setNewStoreSlug(slug);
                     }}
-                    className={`w-full px-4 py-2.5 rounded-xl border ${themeStyles.border} bg-neutral-50/50 dark:bg-neutral-900/10 text-xs focus:border-accent-corail outline-none transition-all`}
+                    className={`w-full px-4 py-2.5 rounded-xl border ${themeStyles.border} bg-neutral-50/50 dark:bg-bg-primary text-xs focus:border-accent-corail outline-none transition-all`}
                   />
                 </div>
 
@@ -4800,7 +4800,7 @@ export default function Dashboard() {
                           .replace(/[^a-z0-9]/g, '');
                         setNewStoreSlug(slug);
                       }}
-                      className={`w-full pl-7 pr-4 py-2.5 rounded-xl border ${themeStyles.border} bg-neutral-50/50 dark:bg-neutral-900/10 text-xs font-mono focus:border-accent-corail outline-none transition-all`}
+                      className={`w-full pl-7 pr-4 py-2.5 rounded-xl border ${themeStyles.border} bg-neutral-50/50 dark:bg-bg-primary text-xs font-mono focus:border-accent-corail outline-none transition-all`}
                     />
                   </div>
                   <span className="text-[9px] text-neutral-500">

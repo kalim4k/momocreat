@@ -36,7 +36,7 @@ export default function Pay() {
   };
 
   return (
-    <div className="min-h-screen bg-[#14120F] text-[#FAFAF8] flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-[#120C19] text-[#FAF8FC] flex items-center justify-center p-4 relative overflow-hidden">
       {/* Premium background glowing halos */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-accent-corail/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-success-gold/10 rounded-full blur-[120px] pointer-events-none" />
@@ -45,7 +45,7 @@ export default function Pay() {
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-        className="w-full max-w-[400px] bg-[#1E1B17]/40 backdrop-blur-xl border border-neutral-800/60 rounded-[32px] p-10 flex flex-col items-center shadow-2xl relative z-10"
+        className="w-full max-w-[400px] bg-[#1B1325]/40 backdrop-blur-xl border border-neutral-800/60 rounded-[32px] p-10 flex flex-col items-center shadow-2xl relative z-10"
       >
         {/* Subtle decorative top line */}
         <div className="w-12 h-1 bg-gradient-to-r from-accent-corail to-success-gold rounded-full mb-8 opacity-60" />

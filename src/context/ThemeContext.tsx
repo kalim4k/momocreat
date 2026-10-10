@@ -35,25 +35,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [isDarkMode]);
 
-  const styles = isDarkMode 
-    ? {
-        bg: 'bg-neutral-950',
-        surface: 'bg-neutral-900 border-neutral-800',
-        textPrimary: 'text-white',
-        textSecondary: 'text-neutral-400',
-        border: 'border-neutral-800',
-        hoverBg: 'hover:bg-neutral-800',
-        badgeBg: 'bg-neutral-850',
-      }
-    : {
-        bg: 'bg-light-bg-primary',
-        surface: 'bg-light-bg-surface border-gray-200',
-        textPrimary: 'text-light-text-primary',
-        textSecondary: 'text-gray-500',
-        border: 'border-gray-200',
-        hoverBg: 'hover:bg-gray-100',
-        badgeBg: 'bg-gray-100',
-      };
+  // Same classes in both modes: they point at the palette variables in index.css, which
+  // `.dark` redefines. Tailwind's neutral greys here would clash with the plum palette.
+  const styles = {
+    bg: 'bg-bg-primary',
+    surface: 'bg-bg-surface border-border-custom',
+    textPrimary: 'text-text-primary',
+    textSecondary: 'text-text-secondary',
+    border: 'border-border-custom',
+    hoverBg: 'hover:bg-bg-surface-hover',
+    badgeBg: 'bg-bg-surface-hover',
+  };
 
   return (
     <ThemeContext.Provider value={{ isDarkMode, setIsDarkMode, styles }}>

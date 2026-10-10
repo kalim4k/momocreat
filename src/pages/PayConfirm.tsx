@@ -82,7 +82,7 @@ export default function PayConfirm() {
   };
 
   return (
-    <div className="min-h-screen bg-[#14120F] text-[#FAFAF8] flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-[#120C19] text-[#FAF8FC] flex items-center justify-center p-4 relative overflow-hidden">
       {/* Background decoration */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-accent-corail/5 rounded-full blur-[80px] pointer-events-none" />
 
@@ -90,7 +90,7 @@ export default function PayConfirm() {
         initial={{ opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="w-full max-w-[420px] bg-[#1E1B17]/60 backdrop-blur-xl border border-neutral-800/80 rounded-[28px] p-8 flex flex-col items-center text-center shadow-2xl relative overflow-hidden"
+        className="w-full max-w-[420px] bg-[#1B1325]/60 backdrop-blur-xl border border-neutral-800/80 rounded-[28px] p-8 flex flex-col items-center text-center shadow-2xl relative overflow-hidden"
       >
         {/* LOADING STATE */}
         {status === 'loading' && (
@@ -156,7 +156,7 @@ export default function PayConfirm() {
             <div className="flex flex-col gap-3 w-full mt-4">
               <button
                 onClick={handleRetry}
-                className="w-full py-3.5 rounded-xl text-xs font-semibold text-neutral-300 hover:text-[#FAFAF8] bg-transparent hover:bg-white/5 transition-all cursor-pointer border border-neutral-800"
+                className="w-full py-3.5 rounded-xl text-xs font-semibold text-neutral-300 hover:text-[#FAF8FC] bg-transparent hover:bg-white/5 transition-all cursor-pointer border border-neutral-800"
               >
                 Réessayer le paiement
               </button>

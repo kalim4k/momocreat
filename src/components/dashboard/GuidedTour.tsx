@@ -170,7 +170,7 @@ export default function GuidedTour({ storageKey, active }: GuidedTourProps) {
               animate={{ top: box.top, left: box.left, width: box.width, height: box.height }}
               transition={{ duration: 0.3, ease: 'easeInOut' }}
               className="fixed rounded-2xl border-2 border-accent-corail pointer-events-none z-[201]"
-              style={{ boxShadow: '0 0 0 3px rgba(225,79,48,0.25)' }}
+              style={{ boxShadow: '0 0 0 3px rgba(109,40,217,0.25)' }}
             />
           </div>
         ) : (

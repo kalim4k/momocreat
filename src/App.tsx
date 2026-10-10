@@ -46,7 +46,7 @@ function AdminRoute({ children }: { children: ReactNode }) {
   
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#14120F] flex items-center justify-center">
+      <div className="min-h-screen bg-[#120C19] flex items-center justify-center">
         <div className="w-10 h-10 rounded-full border-4 border-accent-corail border-t-transparent animate-spin" />
       </div>
     );

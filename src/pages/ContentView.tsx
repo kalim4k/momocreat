@@ -222,7 +222,7 @@ export default function ContentView() {
                 )}
 
                 {content?.content_type === 'image' && (
-                  <div className={`w-full max-h-[360px] rounded-2xl overflow-hidden bg-neutral-100 dark:bg-neutral-900 border ${themeStyles.border} flex items-center justify-center shadow-sm`}>
+                  <div className={`w-full max-h-[360px] rounded-2xl overflow-hidden bg-neutral-100 dark:bg-bg-surface border ${themeStyles.border} flex items-center justify-center shadow-sm`}>
                     <img 
                       src={signedUrl} 
                       alt={content.title} 

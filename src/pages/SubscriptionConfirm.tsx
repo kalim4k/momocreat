@@ -137,8 +137,8 @@ export default function SubscriptionConfirm() {
   };
 
   return (
-    <div className="min-h-screen bg-[#14120F] text-[#FAFAF8] flex items-center justify-center p-4">
-      <div id="subscription-confirm-card" className="w-full max-w-[480px] bg-[#1E1B17] border border-neutral-800 rounded-[28px] p-8 flex flex-col items-center text-center shadow-2xl relative overflow-hidden">
+    <div className="min-h-screen bg-[#120C19] text-[#FAF8FC] flex items-center justify-center p-4">
+      <div id="subscription-confirm-card" className="w-full max-w-[480px] bg-[#1B1325] border border-neutral-800 rounded-[28px] p-8 flex flex-col items-center text-center shadow-2xl relative overflow-hidden">
         
         {/* Glow decoration */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-accent-corail/10 rounded-full blur-[60px] pointer-events-none" />
@@ -196,15 +196,15 @@ export default function SubscriptionConfirm() {
         {/* SUCCESS STATE */}
         {status === 'success' && (
           <div className="py-4 flex flex-col items-center gap-6">
-            {/* Circle Checkmark in Gold #F2B84B */}
-            <div className="p-4 bg-[#F2B84B]/10 text-[#F2B84B] rounded-full border border-[#F2B84B]/20">
+            {/* Circle Checkmark in Gold #FFB020 */}
+            <div className="p-4 bg-[#FFB020]/10 text-[#FFB020] rounded-full border border-[#FFB020]/20">
               <Check size={40} strokeWidth={2.5} />
             </div>
             
             <div className="flex flex-col gap-2">
-              <h1 className="font-display text-2xl font-bold tracking-tight text-[#F2B84B]">Abonnement activé !</h1>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-[#FFB020]">Abonnement activé !</h1>
               <p className="text-sm text-neutral-400 max-w-[340px] leading-relaxed">
-                Vous pouvez maintenant publier du contenu exclusif jusqu'au <span className="text-[#FAFAF8] font-semibold">{endDate || 'prochain mois'}</span>.
+                Vous pouvez maintenant publier du contenu exclusif jusqu'au <span className="text-[#FAF8FC] font-semibold">{endDate || 'prochain mois'}</span>.
               </p>
               {restoredCount > 0 && (
                 <div className="mt-3 p-3 bg-[#4CAF50]/10 border border-[#4CAF50]/20 rounded-xl text-xs text-[#4CAF50] font-medium leading-relaxed max-w-[340px]">
@@ -216,7 +216,7 @@ export default function SubscriptionConfirm() {
             <div className="flex flex-col gap-3 w-full mt-6">
               <button
                 onClick={handleGoToDashboard}
-                className="w-full py-3.5 rounded-xl text-xs font-bold text-black bg-[#F2B84B] hover:bg-[#e0a941] transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow"
+                className="w-full py-3.5 rounded-xl text-xs font-bold text-black bg-[#FFB020] hover:bg-[#F5A300] transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow"
               >
                 <span>Aller au dashboard</span>
                 <ArrowRight size={14} />
@@ -245,7 +245,7 @@ export default function SubscriptionConfirm() {
             <div className="flex flex-col gap-3 w-full mt-6">
               <button
                 onClick={handleRetry}
-                className="w-full py-3.5 rounded-xl text-xs font-bold text-[#FAFAF8] bg-accent-corail hover:bg-accent-corail-hover transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow"
+                className="w-full py-3.5 rounded-xl text-xs font-bold text-[#FAF8FC] bg-accent-corail hover:bg-accent-corail-hover transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow"
               >
                 <RotateCcw size={14} />
                 <span>Réessayer</span>
@@ -253,7 +253,7 @@ export default function SubscriptionConfirm() {
               
               <button
                 onClick={handleGoToDashboard}
-                className="w-full py-3.5 rounded-xl text-xs font-semibold text-neutral-400 hover:text-[#FAFAF8] bg-transparent hover:bg-white/5 transition-all cursor-pointer border border-neutral-800"
+                className="w-full py-3.5 rounded-xl text-xs font-semibold text-neutral-400 hover:text-[#FAF8FC] bg-transparent hover:bg-white/5 transition-all cursor-pointer border border-neutral-800"
               >
                 Retour au dashboard
               </button>

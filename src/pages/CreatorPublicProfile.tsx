@@ -615,7 +615,7 @@ export default function CreatorPublicProfile() {
   // Loader state
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#FAFAF8] flex flex-col items-center justify-center gap-3">
+      <div className="min-h-screen bg-[#FAF8FC] flex flex-col items-center justify-center gap-3">
         <Loader2 className="animate-spin text-accent-corail h-10 w-10" />
         <span className="text-xs text-gray-500 font-mono">Chargement de la page créateur...</span>
       </div>
@@ -625,7 +625,7 @@ export default function CreatorPublicProfile() {
   // 404 Personalized missing profile screen
   if (!profile) {
     return (
-      <div className="min-h-screen bg-[#FAFAF8] flex flex-col items-center justify-center px-6 text-center">
+      <div className="min-h-screen bg-[#FAF8FC] flex flex-col items-center justify-center px-6 text-center">
         <motion.div 
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -661,7 +661,7 @@ export default function CreatorPublicProfile() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAFAF8] text-[#1A1815] flex flex-col pb-16 relative">
+    <div className="min-h-screen bg-[#FAF8FC] text-[#1D1327] flex flex-col pb-16 relative">
       
       {/* Top Banner & Buyer verification bar */}
       <div className="border-b border-gray-200 bg-white/70 backdrop-blur px-4 py-3 sticky top-0 z-40">
@@ -708,7 +708,7 @@ export default function CreatorPublicProfile() {
                       value={buyerEmailInput}
                       onChange={(e) => setBuyerEmailInput(e.target.value)}
                       placeholder="Votre email d'achat"
-                      className="bg-transparent px-2 py-0.5 text-[10px] focus:outline-none text-[#1A1815] w-28 placeholder:text-gray-400"
+                      className="bg-transparent px-2 py-0.5 text-[10px] focus:outline-none text-[#1D1327] w-28 placeholder:text-gray-400"
                       required
                     />
                     <button
@@ -795,7 +795,7 @@ export default function CreatorPublicProfile() {
             )}
             
             {/* Verification badge */}
-            <span className="absolute bottom-0 right-0 bg-[#F2B84B] text-black rounded-full p-1 border-2 border-[#FAFAF8] shadow">
+            <span className="absolute bottom-0 right-0 bg-[#FFB020] text-black rounded-full p-1 border-2 border-[#FAF8FC] shadow">
               <Sparkles size={12} />
             </span>
           </div>
@@ -943,10 +943,10 @@ export default function CreatorPublicProfile() {
                          </div>
                        )}
  
-                       {/* Only show locked overlay if NOT bought (fond #14120F at 60% + padlock) */}
+                       {/* Only show locked overlay if NOT bought (fond #120C19 at 60% + padlock) */}
                        {!isAlreadyBought && (
-                         <div className="absolute inset-0 bg-[#14120F]/60 flex items-center justify-center z-10 transition-colors group-hover:bg-[#14120F]/50">
-                           <div className="p-2.5 bg-[#14120F]/80 rounded-full border border-gray-700 text-gray-400 group-hover:text-accent-corail transition-colors">
+                         <div className="absolute inset-0 bg-[#120C19]/60 flex items-center justify-center z-10 transition-colors group-hover:bg-[#120C19]/50">
+                           <div className="p-2.5 bg-[#120C19]/80 rounded-full border border-gray-700 text-gray-400 group-hover:text-accent-corail transition-colors">
                              <Lock size={15} />
                            </div>
                          </div>
@@ -981,7 +981,7 @@ export default function CreatorPublicProfile() {
                          <button
                            type="button"
                            onClick={() => handleUnlockClick(content)}
-                           className="w-full py-2.5 rounded-xl text-[11px] font-bold text-white bg-[#F2B84B] hover:bg-[#E0A83A] transition-colors flex items-center justify-center gap-1 cursor-pointer shadow-md shadow-[#F2B84B]/10 active:scale-[0.98]"
+                           className="w-full py-2.5 rounded-xl text-[11px] font-bold text-white bg-[#FFB020] hover:bg-[#F5A300] transition-colors flex items-center justify-center gap-1 cursor-pointer shadow-md shadow-[#FFB020]/10 active:scale-[0.98]"
                          >
                            <span>▶ Voir le contenu</span>
                          </button>

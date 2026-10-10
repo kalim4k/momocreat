@@ -6,7 +6,7 @@
 import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
-const COLORS = ['#FF6B4A', '#FFC542', '#7C3AED', '#10B981', '#3B82F6', '#EC4899'];
+const COLORS = ['#8B5CF6', '#FFC14D', '#7C3AED', '#10B981', '#3B82F6', '#EC4899'];
 
 interface ConfettiPiece {
   id: number;

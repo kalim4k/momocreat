@@ -19,7 +19,7 @@ export default function Congrat() {
   };
 
   return (
-    <div className="min-h-screen bg-[#14120F] text-[#FAFAF8] flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-[#120C19] text-[#FAF8FC] flex items-center justify-center p-4 relative overflow-hidden">
       {/* Decorative premium glows */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-success-gold/10 rounded-full blur-[100px] pointer-events-none" />
 
@@ -27,7 +27,7 @@ export default function Congrat() {
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-        className="w-full max-w-[480px] bg-[#1E1B17]/40 backdrop-blur-xl border border-neutral-800/60 rounded-[32px] p-10 flex flex-col items-center text-center shadow-2xl relative z-10"
+        className="w-full max-w-[480px] bg-[#1B1325]/40 backdrop-blur-xl border border-neutral-800/60 rounded-[32px] p-10 flex flex-col items-center text-center shadow-2xl relative z-10"
       >
         {/* Animated Check badge matching success color */}
         <motion.div 
@@ -64,7 +64,7 @@ export default function Congrat() {
         </div>
 
         {/* TikTok warning / Copy link box */}
-        <div className="w-full bg-[#1E1B17]/60 border border-neutral-800/50 rounded-2xl p-5 mb-8 text-left flex flex-col gap-3.5">
+        <div className="w-full bg-[#1B1325]/60 border border-neutral-800/50 rounded-2xl p-5 mb-8 text-left flex flex-col gap-3.5">
           <div className="flex items-start gap-3">
             <div className="p-2 bg-yellow-500/10 text-yellow-500 rounded-lg shrink-0 mt-0.5">
               <AlertTriangle size={15} />
@@ -108,7 +108,7 @@ export default function Congrat() {
         <div className="w-full">
           <button
             onClick={() => navigate('/pay')}
-            className="w-full py-3.5 rounded-xl text-xs font-semibold text-neutral-400 hover:text-[#FAFAF8] bg-transparent hover:bg-white/5 transition-all cursor-pointer border border-neutral-800"
+            className="w-full py-3.5 rounded-xl text-xs font-semibold text-neutral-400 hover:text-[#FAF8FC] bg-transparent hover:bg-white/5 transition-all cursor-pointer border border-neutral-800"
           >
             Retour à l'accueil
           </button>

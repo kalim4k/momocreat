@@ -398,33 +398,33 @@ export default function AdminOverview() {
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorRevenu" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#E14F30" stopOpacity={0.2}/>
-                    <stop offset="95%" stopColor="#E14F30" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#6D28D9" stopOpacity={0.2}/>
+                    <stop offset="95%" stopColor="#6D28D9" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E4DFD6" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8E2F0" vertical={false} />
                 <XAxis 
                   dataKey="date" 
-                  stroke="#5E5A52" 
+                  stroke="#645878" 
                   fontSize={10} 
                   tickLine={false} 
                   axisLine={false}
                 />
                 <YAxis 
-                  stroke="#5E5A52" 
+                  stroke="#645878" 
                   fontSize={10} 
                   tickLine={false} 
                   axisLine={false}
                   tickFormatter={(val) => `${val >= 1000 ? (val / 1000) + 'k' : val}`}
                 />
                 <Tooltip 
-                  contentStyle={{ backgroundColor: '#FFFFFF', borderColor: '#E4DFD6', color: '#1F1C18', borderRadius: '8px', fontSize: '12px' }}
-                  labelClassName="text-[#5E5A52]"
+                  contentStyle={{ backgroundColor: '#FFFFFF', borderColor: '#E8E2F0', color: '#1D1327', borderRadius: '8px', fontSize: '12px' }}
+                  labelClassName="text-[#645878]"
                 />
                 <Area 
                   type="monotone" 
                   dataKey="revenu" 
-                  stroke="#E14F30" 
+                  stroke="#6D28D9" 
                   strokeWidth={2}
                   fillOpacity={1} 
                   fill="url(#colorRevenu)" 

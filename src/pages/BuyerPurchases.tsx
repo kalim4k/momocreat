@@ -241,7 +241,7 @@ export default function BuyerPurchases() {
                 placeholder="Rechercher un achat par titre..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className={`w-full pl-9 pr-4 py-2 rounded-xl border ${themeStyles.border} text-xs focus:outline-none focus:border-accent-corail transition-colors bg-black/5 dark:bg-neutral-800 ${themeStyles.textPrimary} placeholder:text-gray-400`}
+                className={`w-full pl-9 pr-4 py-2 rounded-xl border ${themeStyles.border} text-xs focus:outline-none focus:border-accent-corail transition-colors bg-black/5 dark:bg-bg-surface-hover ${themeStyles.textPrimary} placeholder:text-gray-400`}
               />
             </div>
 
@@ -252,11 +252,11 @@ export default function BuyerPurchases() {
                 onChange={(e) => setSelectedType(e.target.value)}
                 className={`w-full pl-9 pr-8 py-2 rounded-xl border ${themeStyles.border} text-xs focus:outline-none focus:border-accent-corail transition-colors bg-transparent appearance-none cursor-pointer ${themeStyles.textPrimary}`}
               >
-                <option value="all" className="bg-white dark:bg-neutral-900">Tous les formats</option>
-                <option value="pdf" className="bg-white dark:bg-neutral-900">Fichiers PDF</option>
-                <option value="video" className="bg-white dark:bg-neutral-900">Vidéos</option>
-                <option value="image" className="bg-white dark:bg-neutral-900">Images</option>
-                <option value="audio" className="bg-white dark:bg-neutral-900">Audios</option>
+                <option value="all" className="bg-white dark:bg-bg-surface">Tous les formats</option>
+                <option value="pdf" className="bg-white dark:bg-bg-surface">Fichiers PDF</option>
+                <option value="video" className="bg-white dark:bg-bg-surface">Vidéos</option>
+                <option value="image" className="bg-white dark:bg-bg-surface">Images</option>
+                <option value="audio" className="bg-white dark:bg-bg-surface">Audios</option>
               </select>
             </div>
           </div>
@@ -370,7 +370,7 @@ export default function BuyerPurchases() {
                       className={`border ${themeStyles.border} rounded-[18px] p-4 bg-bg-primary hover:bg-bg-surface hover:border-accent-corail/30 transition-all duration-300 flex flex-col justify-between gap-3 relative group`}
                     >
                       {/* Thumbnail or Type icon overlay */}
-                      <div className={`relative aspect-video w-full rounded-xl bg-neutral-200/50 dark:bg-neutral-800/50 flex items-center justify-center overflow-hidden border ${themeStyles.border}`}>
+                      <div className={`relative aspect-video w-full rounded-xl bg-neutral-200/50 dark:bg-bg-surface-hover flex items-center justify-center overflow-hidden border ${themeStyles.border}`}>
                         {purchase.preview_url ? (
                           <img 
                             src={purchase.preview_url} 

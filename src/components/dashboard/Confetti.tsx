@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
-const COLORS = ['#E14F30', '#F2B84B', '#9333EA', '#22C55E', '#3B82F6', '#EC4899'];
+const COLORS = ['#6D28D9', '#FFB020', '#9333EA', '#22C55E', '#3B82F6', '#EC4899'];
 const PARTICLE_COUNT = 60;
 
 interface Particle {
