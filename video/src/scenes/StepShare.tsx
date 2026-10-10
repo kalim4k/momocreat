@@ -1,83 +1,114 @@
 /**
- * Etape 2 — le lien de la boutique se copie et atterrit dans la bio TikTok, Instagram,
- * WhatsApp. Repere 360 × 225, rendu en 720 × 450.
+ * Etape 2 « Collez le lien en bio » : le createur copie le lien de sa boutique depuis
+ * l'en-tete du tableau de bord, puis on voit la page que ses fans ouvrent depuis la bio :
+ * la boutique publique, telle qu'elle s'affiche sur un telephone.
  */
-import { AbsoluteFill, interpolate, useCurrentFrame } from 'remotion';
-import { Check, Copy, Instagram, MessageCircle, Music2 } from 'lucide-react';
-import { PALETTE, fontBody, fontDisplay, type ThemeName } from '../theme';
-import { Stage, TapRipple, progress, typed, usePopSpring } from '../motion';
+import { AbsoluteFill, useCurrentFrame } from 'remotion';
+import { CheckCircle2 } from 'lucide-react';
+import { COPY_BUTTON, DashboardFrame, DESK_H, DESK_W } from '../app/DashboardFrame';
+import { HomeView } from '../app/HomeView';
+import { BrowserTop, PHONE_W, PublicProfile } from '../app/FanViews';
+import { TOTALS } from '../app/data';
+import { AppTheme, Camera, Cursor, type CursorKey, type Shot } from '../app/kit';
+import { Stage, progress } from '../motion';
+import type { ThemeName } from '../theme';
+import { STEP_DURATION } from './StepPublish';
 
-const LINK = 'momolink.app/@awa';
+const STAGE_W = 640;
 
-const PLATFORMS = [
-  { label: 'TikTok', icon: Music2, at: 74 },
-  { label: 'Instagram', icon: Instagram, at: 92 },
-  { label: 'WhatsApp', icon: MessageCircle, at: 110 },
+const T = { copy: 30, swap: 64, loop: 222 };
+
+const DESK_SHOT: Shot[] = [{ at: 0, x: 860, y: 0, w: 420 }];
+
+/** La page publique, cadree sur une largeur de 420 px (le telephone en fait 390). */
+const PHONE_SHOTS: Shot[] = [
+  { at: 0, x: -15, y: 0, w: 420 },
+  { at: 92, x: -15, y: 0, w: 420 },
+  { at: 132, from: 106, x: -15, y: 300, w: 420 },
+  { at: 186, from: 158, x: -15, y: 792, w: 420 },
 ];
 
-function PlatformRow({ label, Icon, at, theme }: { label: string; Icon: typeof Music2; at: number; theme: ThemeName }) {
-  const P = PALETTE[theme];
-  const frame = useCurrentFrame();
-  const on = progress(frame, at, at + 10);
-  const pop = usePopSpring(at + 4);
+const CURSOR: CursorKey[] = [
+  { at: 0, x: 1040, y: 190 },
+  { at: 10, x: 1040, y: 190 },
+  { at: T.copy, x: COPY_BUTTON.x, y: COPY_BUTTON.y, click: true },
+  { at: 60, x: 1150, y: 120 },
+];
+
+function Desk({ theme, copied }: { theme: ThemeName; copied: boolean }) {
   return (
-    <div style={{ height: 44, borderRadius: 14, border: `1px solid ${on > 0.5 ? P.primary : P.border}`, background: on > 0 ? (theme === 'light' ? `rgba(109,40,217,${0.07 * on})` : `rgba(139,92,246,${0.14 * on})`) : P.surface, display: 'flex', alignItems: 'center', gap: 8, padding: '0 9px 0 11px' }}>
-      <Icon size={15} color={P.text} style={{ flexShrink: 0 }} />
-      <div style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: 600, color: P.text, whiteSpace: 'nowrap' }}>{label}</div>
-      <div style={{ width: 18, height: 18, borderRadius: 999, background: P.primary, color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', transform: `scale(${pop})`, opacity: Math.min(1, pop * 1.5) }}>
-        <Check size={11} strokeWidth={3} />
-      </div>
+    <AppTheme theme={theme}>
+      <DashboardFrame active="home" copied={copied}>
+        <HomeView revenue={TOTALS.revenue30d} donations={0} earnings={TOTALS.earnings} published={TOTALS.published} chartExtra={0} activity={[]} />
+      </DashboardFrame>
+    </AppTheme>
+  );
+}
+
+function CopiedChip({ frame }: { frame: number }) {
+  const t = progress(frame, T.copy + 2, T.copy + 12);
+  if (t <= 0) return null;
+  return (
+    <div
+      className="absolute flex items-center gap-1.5 rounded-full border border-border-custom bg-bg-surface px-3 py-1.5 text-[11px] font-semibold text-text-primary shadow-lg"
+      style={{ left: COPY_BUTTON.x - 110, top: COPY_BUTTON.y + 30, opacity: t, transform: `translateY(${(1 - t) * -6}px)`, zIndex: 120 }}
+    >
+      <CheckCircle2 size={13} className="text-emerald-500" />
+      Lien de la boutique copié
     </div>
   );
 }
 
 export function StepShare({ theme }: { theme: ThemeName }) {
-  const P = PALETTE[theme];
   const frame = useCurrentFrame();
-
-  const link = typed(LINK, frame, 12, 48);
-  const typing = frame >= 8 && frame < 54;
-  const caret = typing && Math.floor(frame / 7) % 2 === 0;
-  const copied = usePopSpring(58);
-  const copiedFade = 1 - progress(frame, 120, 132);
-  const reset = progress(frame, 164, 179);
+  const swap = progress(frame, T.swap, T.swap + 16);
+  const back = progress(frame, T.loop, STEP_DURATION - 2);
 
   return (
-    <AbsoluteFill style={{ background: P.bg, fontFamily: fontBody }}>
-      <Stage width={360} height={225}>
-        <div style={{ position: 'absolute', inset: 0, opacity: 1 - reset }}>
-          {/* Profil */}
-          <div style={{ position: 'absolute', left: 16, top: 24, width: 186, height: 177, borderRadius: 20, background: P.surface, border: `1px solid ${P.border}`, padding: 14 }}>
-            <div style={{ width: 44, height: 44, borderRadius: 14, background: P.mango, color: P.mangoInk, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: fontDisplay, fontWeight: 700, fontSize: 16 }}>AN</div>
-            <div style={{ marginTop: 10, fontSize: 13, fontWeight: 600, color: P.text }}>@awa.creatrice</div>
-            <div style={{ fontSize: 10.5, color: P.muted }}>Coach contenu · Dakar</div>
-
-            <div style={{ position: 'absolute', left: 14, right: 14, bottom: 14, height: 38, borderRadius: 12, background: P.surface2, display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px 0 10px' }}>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 11, fontWeight: 600, color: P.primary, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                {link}
-                <span style={{ display: 'inline-block', width: 1.5, height: 12, marginLeft: 1, verticalAlign: -2, background: caret ? P.primary : 'transparent' }} />
-              </span>
-              <div style={{ width: 24, height: 24, borderRadius: 8, background: P.surface, color: P.text, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Copy size={12} />
-              </div>
+    <AbsoluteFill className={theme === 'dark' ? 'dark' : ''} style={{ background: 'var(--color-bg-primary)' }}>
+      <Stage width={STAGE_W} height={STAGE_W / 1.6}>
+        {/* Tableau de bord : copie du lien */}
+        <div className="absolute inset-0" style={{ opacity: 1 - swap, transform: `scale(${1 + swap * 0.04})` }}>
+          <Camera shots={DESK_SHOT} width={STAGE_W}>
+            <div className="relative" style={{ width: DESK_W, height: DESK_H }}>
+              <Desk theme={theme} copied={frame >= T.copy + 1} />
+              <CopiedChip frame={frame} />
+              <Cursor keys={CURSOR} />
             </div>
-            <TapRipple at={56} x={160} y={158} color={P.primary} />
-          </div>
-
-          {/* "Lien copie" */}
-          <div style={{ position: 'absolute', left: 62, top: 132, padding: '5px 10px', borderRadius: 999, background: P.text, color: P.bg, fontSize: 10.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5, opacity: Math.min(1, copied * 1.4) * copiedFade, transform: `translateY(${interpolate(copied, [0, 1], [8, 0])}px) scale(${0.9 + 0.1 * copied})` }}>
-            <Check size={11} strokeWidth={3} /> Lien copié
-          </div>
-
-          {/* Le lien atterrit dans chaque bio */}
-          <div style={{ position: 'absolute', left: 214, top: 24, width: 130, display: 'flex', flexDirection: 'column', gap: 9 }}>
-            {PLATFORMS.map((p) => (
-              <PlatformRow key={p.label} label={p.label} Icon={p.icon} at={p.at} theme={theme} />
-            ))}
-            <div style={{ marginTop: 2, fontSize: 10, color: P.muted, textAlign: 'center' }}>Un seul lien, partout</div>
-          </div>
+          </Camera>
         </div>
+
+        {/* La boutique ouverte depuis la bio */}
+        {swap > 0 && (
+          <div className="absolute inset-0 bg-[#FAF8FC]" style={{ opacity: swap * (1 - back), transform: `scale(${0.97 + 0.03 * swap})` }}>
+            <PhoneCamera />
+          </div>
+        )}
+
+        {/* Retour a la premiere image pour la boucle */}
+        {back > 0 && (
+          <div className="absolute inset-0" style={{ opacity: back }}>
+            <Camera shots={DESK_SHOT} width={STAGE_W}>
+              <div className="relative" style={{ width: DESK_W, height: DESK_H }}>
+                <Desk theme={theme} copied={false} />
+              </div>
+            </Camera>
+          </div>
+        )}
       </Stage>
     </AbsoluteFill>
+  );
+}
+
+function PhoneCamera() {
+  return (
+    <AppTheme theme="light">
+      <Camera shots={PHONE_SHOTS} width={STAGE_W}>
+        <div className="relative bg-[#FAF8FC]" style={{ width: PHONE_W }}>
+          <BrowserTop />
+          <PublicProfile />
+        </div>
+      </Camera>
+    </AppTheme>
   );
 }

@@ -11,10 +11,13 @@
  * bandes sombres, ajoutait un bandeau defilant et un grand degrade final ; tout cela se
  * disputait l'attention. Il reste ici une idee par section et une animation par idee.
  *
- * Les scenes animees (paiement sur telephone, trois etapes) sont des videos rendues avec
- * Remotion depuis le sous-projet `video/` : `cd video && npm run render`. Elles pesent entre
- * 60 et 400 Ko, ne se lancent que lorsqu'elles sont a l'ecran, et laissent la place a leur
- * image fixe quand le visiteur a demande moins d'animations.
+ * Les scenes animees montrent la vraie application avant meme l'inscription : le tableau de
+ * bord en version ordinateur dans le hero, des gros plans pour les trois etapes, et la
+ * boutique du fan au format telephone (achat, don). Ce sont des videos rendues avec Remotion
+ * depuis le sous-projet `video/` (`cd video && npm run render`), a partir des memes classes
+ * et de la meme feuille de style que les pages de l'application. Elles ne se lancent que
+ * lorsqu'elles sont a l'ecran et laissent la place a leur image fixe quand le visiteur a
+ * demande moins d'animations.
  *
  * Mouvement : ressorts sans rebond pour l'interface (le rebond est reserve a un
  * aboutissement), apparitions au defilement une seule fois, et mouvement reduit = fondus
@@ -35,7 +38,6 @@ import {
   ArrowRight,
   Check,
   CreditCard,
-  Download,
   Heart,
   MessageCircle,
   Plus,
@@ -255,49 +257,59 @@ const PAYMENT_LOGOS = [
   { url: '/payment-icons/mixx-by-yas.jpg', name: 'Mixx by Yas' },
 ];
 
-/** Le telephone : cadre en CSS (net a toutes les densites), ecran = scene Remotion. */
-function PhoneScene() {
-  const reduce = useReducedMotion();
-
+/**
+ * Le tableau de bord dans une fenetre de navigateur : barre de fenetre en CSS (nette a toutes
+ * les densites), contenu = scene Remotion rendue a partir des classes de Dashboard.tsx.
+ */
+function DashboardWindow() {
   return (
-    <div className="relative">
-      {/* Halo : detache l'appareil du fond sans bordure */}
-      <div className="pointer-events-none absolute inset-x-0 top-1/4 -z-10 mx-auto h-2/3 w-[120%] -translate-x-[8%] rounded-full bg-accent-corail/15 blur-[90px]" />
+    <div className="relative w-full">
+      {/* Halo : detache la fenetre du fond sans bordure appuyee */}
+      <div className="pointer-events-none absolute inset-x-[8%] top-[12%] -z-10 h-[70%] rounded-full bg-accent-corail/15 blur-[100px]" />
 
-      <motion.div
-        animate={reduce ? undefined : { y: [0, -10, 0] }}
-        transition={reduce ? undefined : { duration: 7, ease: 'easeInOut', repeat: Infinity }}
+      <figure
+        aria-label="Démonstration du tableau de bord créateur : une vente et un don arrivent, puis un retrait est demandé sur Wave"
+        className="overflow-hidden rounded-[14px] border border-border-custom bg-bg-surface shadow-[0_2px_6px_rgba(29,19,39,0.05),0_40px_90px_-40px_rgba(29,19,39,0.45)] sm:rounded-[18px]"
       >
-        <figure
-          aria-label="Démonstration : une fan débloque un PDF et paie avec Wave, sans créer de compte"
-          className="relative w-[272px] rounded-[2.9rem] bg-[#17101F] p-[9px] shadow-[0_10px_20px_-6px_rgba(23,16,31,0.25),0_50px_90px_-36px_rgba(23,16,31,0.55)] sm:w-[292px]"
-        >
-          <div className="absolute left-1/2 top-[15px] z-10 h-[24px] w-[88px] -translate-x-1/2 rounded-full bg-[#17101F]" />
-          <MotionClip
-            name="hero-paiement"
-            eager
-            label="Paiement d'un PDF en Mobile Money sur la boutique d'une créatrice"
-            className="block aspect-[540/1170] w-full rounded-[2.3rem] bg-bg-primary object-cover"
-          />
-        </figure>
-      </motion.div>
-
-      {/* Ce que le createur recoit pendant ce temps — rebond : quelque chose vient d'aboutir */}
-      <motion.div
-        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16, scale: 0.92 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={reduce ? { duration: 0.25, delay: 1 } : { ...SPRING.momentum, delay: 1.1 }}
-        className="absolute -left-6 bottom-28 flex items-center gap-2.5 rounded-2xl border border-border-custom/70 bg-bg-surface/90 py-2.5 pl-2.5 pr-4 shadow-[0_20px_40px_-22px_rgba(29,19,39,0.45)] backdrop-blur-xl sm:-left-16"
-      >
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600">
-          <Check size={16} className="stroke-[3]" />
+        <div className="flex items-center gap-3 border-b border-border-custom px-3 py-2 sm:px-4 sm:py-2.5">
+          <div className="flex gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#FF5F57]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#FEBC2E]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#28C840]" />
+          </div>
+          <div className="mx-auto flex items-center gap-1.5 rounded-full bg-bg-primary px-3 py-1 text-[11px] font-medium text-text-secondary sm:px-4 sm:text-[12px]">
+            <img src={LOGO_URL} alt="" className="h-3.5 w-3.5 rounded-[4px]" />
+            Tableau de bord — MomoLink
+          </div>
+          <div className="w-[42px]" />
         </div>
-        <div className="flex flex-col">
-          <span className="text-[12px] font-semibold leading-tight text-text-primary">Vente encaissée</span>
-          <span className="text-[11px] tabular-nums text-text-secondary">+2 250 FCFA · Wave</span>
-        </div>
-      </motion.div>
+        <MotionClip
+          name="tableau-de-bord"
+          themed
+          eager
+          label="Le tableau de bord MomoLink : revenus, ventes, dons et retraits"
+          className="block aspect-[1600/1050] w-full bg-bg-primary object-cover"
+        />
+      </figure>
     </div>
+  );
+}
+
+/** Un telephone : cadre en CSS, ecran = scene Remotion de la boutique publique. */
+function Phone({ clip, startAt, label }: { clip: string; startAt: number; label: string }) {
+  return (
+    <figure
+      aria-label={label}
+      className="relative w-full rounded-[2.4rem] bg-[#17101F] p-[7px] shadow-[0_10px_20px_-6px_rgba(23,16,31,0.25),0_50px_90px_-36px_rgba(23,16,31,0.55)] sm:rounded-[2.9rem] sm:p-[9px]"
+    >
+      <div className="absolute left-1/2 top-[12px] z-10 h-[18px] w-[30%] -translate-x-1/2 rounded-full bg-[#17101F] sm:top-[15px] sm:h-[24px]" />
+      <MotionClip
+        name={clip}
+        startAt={startAt}
+        label={label}
+        className="block aspect-[540/1170] w-full rounded-[1.95rem] bg-white object-cover sm:rounded-[2.3rem]"
+      />
+    </figure>
   );
 }
 
@@ -319,8 +331,8 @@ function Hero() {
 
   return (
     <section className="relative px-4 pb-24 pt-12 sm:pb-32 sm:pt-20">
-      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-16 lg:grid-cols-12 lg:gap-10">
-        <div className="flex flex-col items-center gap-7 text-center lg:col-span-7 lg:items-start lg:text-left">
+      <div className="mx-auto flex max-w-6xl flex-col items-center gap-14 sm:gap-20">
+        <div className="flex max-w-4xl flex-col items-center gap-7 text-center">
           <motion.span
             {...rise(0, 10)}
             className="inline-flex items-center gap-2 rounded-full border border-border-custom bg-bg-surface px-3.5 py-1.5 text-[12px] font-semibold text-text-secondary"
@@ -331,7 +343,7 @@ function Hero() {
 
           <motion.h1
             {...rise(0.06, 22)}
-            className="font-display text-[3rem] font-medium leading-[0.98] tracking-[-0.045em] text-text-primary sm:text-[4.25rem] lg:text-[5rem]"
+            className="font-display text-[3rem] font-medium leading-[0.98] tracking-[-0.045em] text-text-primary sm:text-[4.25rem] lg:text-[4.6rem]"
           >
             Vos{' '}
             <span className="relative inline-flex h-[1.02em] items-center overflow-hidden align-bottom">
@@ -366,7 +378,7 @@ function Hero() {
 
           <motion.p
             {...rise(0.12, 16)}
-            className="max-w-lg text-[16.5px] leading-[1.6] tracking-[-0.005em] text-text-secondary sm:text-[18px]"
+            className="max-w-xl text-[16.5px] leading-[1.6] tracking-[-0.005em] text-text-secondary sm:text-[18px]"
           >
             Un lien dans votre bio. Vos fans paient en dix secondes avec{' '}
             <strong className="font-semibold text-text-primary">Wave, Orange, MTN ou Moov</strong>, sans créer de
@@ -438,12 +450,12 @@ function Hero() {
         </div>
 
         <motion.div
-          initial={reduce ? { opacity: 0 } : { opacity: 0, y: 40, scale: 0.97 }}
+          initial={reduce ? { opacity: 0 } : { opacity: 0, y: 48, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={reduce ? { duration: 0.3, delay: 0.2 } : { ...SPRING.gentle, delay: 0.15 }}
-          className="flex justify-center lg:col-span-5"
+          transition={reduce ? { duration: 0.3, delay: 0.2 } : { ...SPRING.gentle, delay: 0.3 }}
+          className="w-full"
         >
-          <PhoneScene />
+          <DashboardWindow />
         </motion.div>
       </div>
     </section>
@@ -454,27 +466,28 @@ function Hero() {
 /* Comment ca marche — trois etapes, trois scenes                      */
 /* ================================================================== */
 
+/** `startAt` : seconde de l'image d'apercu de chaque scene (voir video/render.mjs). */
 const STEPS = [
   {
-    clip: 'etape-fichier',
-    startAt: 5,
+    clip: 'etape-publier',
+    startAt: 138 / 30,
     title: 'Déposez votre fichier',
     body: "PDF, vidéo, audio ou photo. Vous fixez le prix en FCFA, nous générons un lien d'accès signé qui expire après une heure.",
-    label: "Un fichier PDF est déposé, son prix est fixé à 2 500 FCFA et il passe en vente",
+    label: 'Dans « Mon contenu », un PDF est déposé, son prix fixé à 2 500 FCFA, puis publié',
   },
   {
-    clip: 'etape-lien',
-    startAt: 4.67,
+    clip: 'etape-partager',
+    startAt: 50 / 30,
     title: 'Collez le lien en bio',
     body: 'TikTok, Instagram, Snapchat, WhatsApp. Vos fans arrivent sur votre page et achètent sans jamais créer de compte.',
-    label: 'Le lien de la boutique est copié puis ajouté aux bios TikTok, Instagram et WhatsApp',
+    label: "Le lien de la boutique est copié depuis le tableau de bord, puis la boutique s'ouvre sur un téléphone",
   },
   {
-    clip: 'etape-retrait',
-    startAt: 3.2,
+    clip: 'etape-retirer',
+    startAt: 190 / 30,
     title: 'Retirez sur votre numéro',
-    body: 'Chaque vente crédite votre solde immédiatement. Vous demandez un retrait Wave, Orange, MTN ou Moov, traité sous 24h.',
-    label: 'Les ventes Wave, Orange, MTN et Moov arrivent, le solde monte, puis un retrait est envoyé sur Wave',
+    body: 'Chaque vente crédite votre solde immédiatement. Dès 5 000 FCFA, vous demandez un retrait Wave, Orange, MTN ou Moov, traité sous 24 à 48 h ouvrées.',
+    label: 'Un retrait de 15 000 FCFA est demandé sur Wave et apparaît « En attente » dans l\'historique',
   },
 ];
 
@@ -518,19 +531,10 @@ function HowItWorks() {
 }
 
 /* ================================================================== */
-/* Demonstration interactive                                           */
+/* Cote fan — la boutique publique, au format telephone                */
 /* ================================================================== */
 
-type DemoMethod = 'wave' | 'orange' | 'carte';
-type DemoState = 'idle' | 'paying' | 'success';
-
-const DEMO_METHODS: { id: DemoMethod; label: string; active: string }[] = [
-  { id: 'wave', label: 'Wave', active: 'border-[#1D9BF0] bg-[#1D9BF0]/10 text-[#1D9BF0]' },
-  { id: 'orange', label: 'Orange', active: 'border-[#FF6600] bg-[#FF6600]/10 text-[#FF6600]' },
-  { id: 'carte', label: 'Carte', active: 'border-accent-corail bg-accent-corail/10 text-accent-corail' },
-];
-
-const DEMO_POINTS = [
+const FAN_POINTS = [
   {
     icon: Smartphone,
     title: `Mobile Money dans ${COUNTRY_COUNT} pays`,
@@ -548,50 +552,38 @@ const DEMO_POINTS = [
   },
 ];
 
-function CheckoutDemo() {
+/** `startAt` : seconde de l'image d'apercu (voir video/render.mjs). */
+const FAN_CLIPS = [
+  {
+    clip: 'fan-achat',
+    startAt: 192 / 30,
+    caption: 'Acheter un contenu',
+    label: 'Une fan débloque le Pack PDF : elle remplit son nom, son email et son numéro Mobile Money, paie 2 500 FCFA et revient avec son contenu',
+  },
+  {
+    clip: 'fan-don',
+    startAt: 160 / 30,
+    caption: 'Faire un don',
+    label: 'Un fan envoie un don de 2 500 FCFA avec un petit mot depuis la boutique',
+  },
+];
+
+function FanSide() {
   const enter = useEnter();
-  const reduce = useReducedMotion();
-  const [method, setMethod] = useState<DemoMethod>('wave');
-  const [state, setState] = useState<DemoState>('idle');
-  const [phone, setPhone] = useState('');
-  const [card, setCard] = useState('4242 4242 4242 4242');
-  const timerRef = useRef<number | null>(null);
-
-  // Un minuteur laisse pendant sur une page qu'on quitte rallume l'etat plus tard.
-  useEffect(() => () => { if (timerRef.current) window.clearTimeout(timerRef.current); }, []);
-
-  const pay = () => {
-    setState('paying');
-    timerRef.current = window.setTimeout(() => setState('success'), 1700);
-  };
-
-  const reset = () => {
-    setState('idle');
-    setPhone('');
-    setCard('4242 4242 4242 4242');
-  };
-
-  /** L'ecran suivant se materialise (flou + echelle) au lieu de simplement apparaitre. */
-  const materialize = reduce
-    ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } }
-    : {
-        initial: { opacity: 0, scale: 0.97, filter: 'blur(6px)' },
-        animate: { opacity: 1, scale: 1, filter: 'blur(0px)' },
-        exit: { opacity: 0, scale: 0.98, filter: 'blur(6px)' },
-      };
 
   return (
     <section id="live-demo" className="scroll-mt-24 px-4 py-24 sm:py-32">
       <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-14 lg:grid-cols-12 lg:gap-16">
-        <motion.div {...enter(24)} className="flex flex-col gap-7 lg:col-span-6">
-          <span className={EYEBROW}>Essayez</span>
+        <motion.div {...enter(24)} className="flex flex-col gap-7 lg:col-span-5">
+          <span className={EYEBROW}>Côté fan</span>
           <h2 className={H2}>Voilà ce que votre fan voit.</h2>
           <p className="max-w-md text-[16px] leading-[1.6] text-text-secondary">
-            Choisissez un moyen de paiement et appuyez. L'interface est celle de production, seul le débit est simulé.
+            Votre fan ouvre le lien de votre bio et tombe sur votre boutique. Pas de compte à créer, pas
+            d'application à installer : son nom, son numéro Mobile Money, et c'est payé.
           </p>
 
           <div className="flex flex-col gap-6 pt-1">
-            {DEMO_POINTS.map((point) => {
+            {FAN_POINTS.map((point) => {
               const Icon = point.icon;
               return (
                 <div key={point.title} className="flex items-start gap-4">
@@ -608,141 +600,15 @@ function CheckoutDemo() {
           </div>
         </motion.div>
 
-        <motion.div {...enter(32, 0.08)} className="flex justify-center lg:col-span-6">
-          <div className={`${CARD} flex min-h-[440px] w-full max-w-[390px] flex-col justify-between overflow-hidden p-6`}>
-            <AnimatePresence mode="wait" initial={false}>
-              {state === 'idle' && (
-                <motion.div key="idle" {...materialize} transition={SPRING.snappy} className="flex flex-col gap-5">
-                  <div className="flex items-center gap-3.5">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-corail/10 text-accent-corail">
-                      <Download size={19} />
-                    </div>
-                    <div className="flex flex-col">
-                      <h3 className="text-[14.5px] font-semibold leading-tight tracking-[-0.01em] text-text-primary">
-                        Guide : Booster sa communauté
-                      </h3>
-                      <span className="mt-0.5 text-[12.5px] text-text-secondary">Par Awa Ndiaye</span>
-                    </div>
-                  </div>
-
-                  <div className="py-1 text-center">
-                    <span className="font-display text-[2.1rem] font-medium tracking-[-0.03em] tabular-nums text-text-primary">
-                      2 500 FCFA
-                    </span>
-                  </div>
-
-                  <div className="h-px w-full bg-border-custom" />
-
-                  <div className="flex flex-col gap-2">
-                    <span className="text-center text-[12px] font-semibold text-text-secondary">Moyen de paiement</span>
-                    <div className="grid grid-cols-3 gap-2">
-                      {DEMO_METHODS.map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => setMethod(m.id)}
-                          aria-pressed={method === m.id}
-                          className={`cursor-pointer rounded-xl border py-2.5 text-[13px] font-semibold ${PRESSABLE} ${
-                            method === m.id
-                              ? m.active
-                              : 'border-border-custom bg-bg-primary text-text-secondary hover:bg-bg-surface-hover'
-                          }`}
-                        >
-                          {m.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    <label htmlFor="demo-number" className="text-[12px] font-semibold text-text-secondary">
-                      {method === 'carte' ? 'Numéro de carte' : 'Numéro de téléphone'}
-                    </label>
-                    <div className="flex items-center gap-3 rounded-xl border border-border-custom bg-bg-primary px-4 py-3 transition-colors duration-150 focus-within:border-accent-corail focus-within:bg-bg-surface">
-                      {method === 'carte' ? (
-                        <>
-                          <CreditCard size={17} className="shrink-0 text-text-secondary" />
-                          <input
-                            id="demo-number"
-                            type="text"
-                            inputMode="numeric"
-                            maxLength={19}
-                            value={card}
-                            onChange={(e) => setCard(e.target.value)}
-                            placeholder="4242 •••• •••• 4242"
-                            className="w-full border-none bg-transparent p-0 text-[14.5px] font-medium tracking-[0.01em] text-text-primary outline-none placeholder:text-text-secondary/50"
-                          />
-                        </>
-                      ) : (
-                        <>
-                          <Smartphone size={17} className="shrink-0 text-text-secondary" />
-                          <input
-                            id="demo-number"
-                            type="tel"
-                            value={phone}
-                            onChange={(e) => setPhone(e.target.value)}
-                            placeholder={method === 'wave' ? '+221 77 123 45 67' : '+225 07 123 456 78'}
-                            className="w-full border-none bg-transparent p-0 text-[14.5px] font-medium tracking-[0.01em] text-text-primary outline-none placeholder:text-text-secondary/50"
-                          />
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={pay}
-                    className={`mt-1 w-full cursor-pointer rounded-xl bg-accent-corail py-3.5 text-[14.5px] font-semibold tracking-[-0.005em] text-white hover:bg-accent-corail-hover ${PRESSABLE}`}
-                  >
-                    Payer 2 500 FCFA
-                  </button>
-                </motion.div>
-              )}
-
-              {state === 'paying' && (
-                <motion.div key="paying" {...materialize} transition={SPRING.snappy} className="my-auto flex flex-col items-center gap-5 py-10 text-center">
-                  <div className="h-11 w-11 animate-spin rounded-full border-[3px] border-border-custom border-t-accent-corail motion-reduce:animate-none" />
-                  <div className="flex flex-col gap-1.5 px-2">
-                    <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-text-primary">
-                      {method === 'carte' ? 'Validation 3D Secure…' : 'Envoi de la demande…'}
-                    </h3>
-                    <p className="text-[13px] leading-[1.6] text-text-secondary">
-                      {method === 'carte'
-                        ? 'Vérification en cours avec votre établissement bancaire.'
-                        : 'Confirmez la transaction via la notification de votre opérateur.'}
-                    </p>
-                  </div>
-                </motion.div>
-              )}
-
-              {state === 'success' && (
-                <motion.div key="success" {...materialize} transition={SPRING.snappy} className="flex h-full flex-col justify-between gap-6 py-1">
-                  <div className="my-auto flex flex-col items-center gap-4 px-2 text-center">
-                    <motion.div
-                      initial={reduce ? { opacity: 0 } : { scale: 0.6, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={reduce ? { duration: 0.2 } : SPRING.momentum}
-                      className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600"
-                    >
-                      <Check size={30} className="stroke-[3]" />
-                    </motion.div>
-                    <div className="flex flex-col gap-1">
-                      <h3 className="font-display text-[20px] font-medium tracking-[-0.02em] text-text-primary">Paiement réussi</h3>
-                      <p className="text-[13px] leading-[1.6] text-text-secondary">
-                        Le guide a été déverrouillé et envoyé automatiquement.
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={reset}
-                    className={`w-full cursor-pointer rounded-xl border border-border-custom py-3 text-[13px] font-semibold text-text-secondary hover:bg-bg-surface-hover hover:text-text-primary ${PRESSABLE}`}
-                  >
-                    Recommencer la démonstration
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </motion.div>
+        {/* Deux telephones, le second decale vers le bas : le regard passe de l'un a l'autre */}
+        <div className="grid grid-cols-2 gap-4 sm:gap-8 lg:col-span-7">
+          {FAN_CLIPS.map((c, idx) => (
+            <motion.div key={c.clip} {...enter(40, 0.08 + idx * 0.1)} className={`mx-auto flex w-full max-w-[290px] flex-col items-center gap-4 ${idx === 1 ? 'mt-12 sm:mt-20' : ''}`}>
+              <Phone clip={c.clip} startAt={c.startAt} label={c.label} />
+              <span className="text-[13px] font-semibold tracking-[-0.005em] text-text-secondary">{c.caption}</span>
+            </motion.div>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -1134,7 +1000,7 @@ export default function Landing() {
       <main>
         <Hero />
         <HowItWorks />
-        <CheckoutDemo />
+        <FanSide />
         <RevenueStreams />
         <PlatformImpact />
         <Pricing />

@@ -15,10 +15,17 @@
     "lucide-react": "^0.546.0",
     "react": "19.0.1",
     "react-dom": "19.0.1",
-    "remotion": "4.0.529"
+    "remotion": "4.0.529",
+    "@remotion/tailwind-v4": "4.0.529",
+    "tailwindcss": "4.3.2",
+    "recharts": "3.9.1"
   },
   "devDependencies": {
     "@types/react": "19.0.10",
     "typescript": "5.8.2"
+  },
+  "overrides": {
+    "tailwindcss": "4.3.2",
+    "@tailwindcss/webpack": "4.3.2"
   }
 }

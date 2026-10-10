@@ -1,0 +1,21 @@
+/*
+ * Les scenes reprennent la feuille de style de l'application telle quelle : memes jetons de
+ * couleur (clair et sombre), memes polices, et les classes Tailwind recopiees des pages du
+ * tableau de bord et de la boutique. Changer la palette dans src/index.css change donc aussi
+ * les videos au prochain rendu.
+ */
+@import "../../src/index.css";
+@source "./";
+
+/*
+ * Remotion rend la video image par image : une transition ou une animation CSS avancerait au
+ * rythme de l'horloge et non de la video, et chaque image tomberait a un instant different.
+ * Les classes recopiees de l'application en contiennent (transition-all, animate-spin...) ;
+ * tout le mouvement passe ici par useCurrentFrame().
+ */
+*,
+*::before,
+*::after {
+  transition: none !important;
+  animation: none !important;
+}
