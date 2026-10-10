@@ -4,31 +4,21 @@
  */
 
 /**
- * Landing page publique.
+ * Landing page publique — version epuree.
  *
- * Parti pris de mise en page : la page precedente empilait dix sections sur le meme fond creme,
- * separees par des filets de 1px, et ne montrait jamais le produit. D'ou trois decisions
- * structurantes ici :
+ * Parti pris : un seul fond clair du haut en bas, de l'espace plutot que des separateurs, et
+ * le produit montre en mouvement plutot que decrit. La version precedente coupait la page en
+ * bandes sombres, ajoutait un bandeau defilant et un grand degrade final ; tout cela se
+ * disputait l'attention. Il reste ici une idee par section et une animation par idee.
  *
- *   - RYTHME. Des bandes sombres pleine largeur (parcours, tarifs, pied de page) coupent la
- *     page. L'oeil a des reperes, et chaque bloc se lit comme une etape distincte au lieu d'un
- *     defilement uniforme.
- *   - PREUVE. Le hero montre l'ecran reel qu'un fan voit — profil, contenu verrouille, prix,
- *     bouton de paiement — au lieu de le decrire. Un produit se montre.
- *   - HIERARCHIE INEGALE. Grille bento plutot que des rangees de trois cartes identiques :
- *     la vente de contenu est l'offre principale, elle occupe donc quatre fois la surface des
- *     deux autres.
+ * Les scenes animees (paiement sur telephone, trois etapes) sont des videos rendues avec
+ * Remotion depuis le sous-projet `video/` : `cd video && npm run render`. Elles pesent entre
+ * 60 et 400 Ko, ne se lancent que lorsqu'elles sont a l'ecran, et laissent la place a leur
+ * image fixe quand le visiteur a demande moins d'animations.
  *
- * Le vocabulaire de mouvement vient du skill `apple-design` :
- *
- *   - Ressorts, pas durees (§4). Une duree fixe ne sait pas repondre a une nouvelle entree.
- *     Amortissement critique (`bounce: 0`) par defaut ; le rebond est reserve aux moments qui
- *     portaient de l'elan.
- *   - Matiere (§12). Les surfaces flottantes sont translucides et le contenu passe dessous.
- *   - Typographie (§15). L'interlettrage depend de la taille : negatif sur les grands titres,
- *     ~0 sur le corps, positif sur les petites capitales.
- *   - Mouvement reduit (§14) n'est pas l'absence de mouvement : les glissements deviennent des
- *     fondus courts.
+ * Mouvement : ressorts sans rebond pour l'interface (le rebond est reserve a un
+ * aboutissement), apparitions au defilement une seule fois, et mouvement reduit = fondus
+ * courts, jamais de glissement.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -46,37 +36,19 @@ import {
   Check,
   CreditCard,
   Download,
-  Facebook,
-  FileText,
-  Globe,
   Heart,
-  Instagram,
-  Linkedin,
-  Lock,
   MessageCircle,
-  Play,
   Plus,
-  Quote,
-  Share2,
   ShoppingBag,
   Smartphone,
-  UploadCloud,
-  Wallet,
-  X,
-  Youtube,
   Zap,
 } from 'lucide-react';
 import PlatformImpact from '../components/PlatformImpact';
 import { LOGO_URL } from '../lib/brand';
-
-/** Encre des bandes sombres. Volontairement fixe : une bande sombre reste sombre en theme clair
- *  comme en theme sombre — c'est un choix de composition, pas une couleur de surface. */
-const INK = '#131110';
+import { useTheme } from '../context/ThemeContext';
 
 /**
- * Pays couverts — source unique pour toute la page. La liste apparait a quatre endroits (le
- * point Mobile Money de la demo, la FAQ, le CTA final, le pied de page) ; les tenir a jour
- * separement garantissait qu'ils finiraient par se contredire.
+ * Pays couverts — source unique pour toute la page (demo, FAQ, appel final, pied de page).
  */
 const COVERED_COUNTRIES = [
   { flag: '🇹🇬', code: 'TG', name: 'Togo' },
@@ -97,35 +69,107 @@ const COUNTRY_COUNT = COVERED_COUNTRIES.length;
 /** « Togo, Bénin, …, RDC et Congo-Brazzaville » — pour les phrases en prose. */
 const COUNTRY_SENTENCE = COVERED_COUNTRIES.map((c) => c.name).join(', ').replace(/, ([^,]*)$/, ' et $1');
 
-/**
- * Vocabulaire de ressorts d'Apple traduit pour Motion. Apple a remplace le triplet
- * masse/raideur/amortissement par deux reglages lisibles : l'amortissement (le rebond) et la
- * reponse (la vivacite, en secondes) — ce que Motion appelle `bounce` et `duration`.
- */
-const SPRING: Record<'ui' | 'snappy' | 'momentum', Transition> = {
-  ui: { type: 'spring', bounce: 0, duration: 0.4 },
+/** Ressorts : `bounce` = rebond, `duration` = vivacite. Sans rebond par defaut. */
+const SPRING: Record<'ui' | 'snappy' | 'momentum' | 'gentle', Transition> = {
+  ui: { type: 'spring', bounce: 0, duration: 0.5 },
   snappy: { type: 'spring', bounce: 0, duration: 0.28 },
-  momentum: { type: 'spring', bounce: 0.22, duration: 0.4 },
+  momentum: { type: 'spring', bounce: 0.22, duration: 0.45 },
+  gentle: { type: 'spring', bounce: 0, duration: 0.8 },
 };
 
-/** Le retour visuel se joue a l'appui, pas au relachement : attendre le `click` donne une
- *  interface qui semble morte. */
+/** Le retour visuel se joue a l'appui, pas au relachement. */
 const PRESSABLE =
   'transition-transform duration-100 ease-out active:scale-[0.97] motion-reduce:active:scale-100';
 
-/** Ombre en deux couches — une courte pour poser l'objet, une longue pour la profondeur. */
 const CARD =
-  'rounded-[28px] bg-bg-surface border border-border-custom/70 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_16px_40px_-24px_rgba(0,0,0,0.14)]';
+  'rounded-[28px] bg-bg-surface border border-border-custom/80 shadow-[0_1px_2px_rgba(29,19,39,0.04),0_18px_44px_-28px_rgba(29,19,39,0.22)]';
 
+const EYEBROW = 'text-[12px] font-semibold uppercase tracking-[0.14em] text-accent-corail';
+const H2 = 'font-display text-[2.25rem] font-medium leading-[1.04] tracking-[-0.035em] text-text-primary sm:text-[3.25rem] text-balance';
+
+/** Apparition au defilement, une seule fois. */
 function useEnter() {
   const reduce = useReducedMotion();
-  return (distance = 24, delay = 0) =>
+  return (distance = 28, delay = 0) =>
     ({
       initial: reduce ? { opacity: 0 } : { opacity: 0, y: distance },
       whileInView: reduce ? { opacity: 1 } : { opacity: 1, y: 0 },
-      viewport: { once: true, margin: '-72px' },
+      viewport: { once: true, margin: '-64px' },
       transition: reduce ? { duration: 0.2, delay } : { ...SPRING.ui, delay },
     }) as const;
+}
+
+/* ================================================================== */
+/* Scenes video (rendues avec Remotion)                                */
+/* ================================================================== */
+
+/**
+ * Une scene de `public/videos`. Ne se charge et ne tourne que lorsqu'elle est visible (un
+ * telephone ne paie ni la bande passante ni la batterie d'une video hors ecran), demarre a
+ * l'image de son apercu pour que le passage de l'image fixe a la video ne se voie pas, et
+ * cede la place a l'image fixe quand le visiteur a demande moins d'animations.
+ */
+function MotionClip({
+  name,
+  themed = false,
+  startAt = 0,
+  eager = false,
+  label,
+  className = '',
+}: {
+  name: string;
+  /** La scene existe en version claire et sombre (`-light` / `-dark`). */
+  themed?: boolean;
+  /** Seconde a laquelle demarrer : celle de l'image d'apercu. */
+  startAt?: number;
+  /** Charger tout de suite (scene du haut de page). */
+  eager?: boolean;
+  label: string;
+  className?: string;
+}) {
+  const reduce = useReducedMotion();
+  const { isDarkMode } = useTheme();
+  const ref = useRef<HTMLVideoElement>(null);
+  const base = `/videos/${name}${themed ? (isDarkMode ? '-dark' : '-light') : ''}`;
+
+  useEffect(() => {
+    const video = ref.current;
+    if (!video || reduce) return;
+    video.muted = true; // la lecture automatique n'est permise que sans le son
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) video.play().catch(() => {});
+        else video.pause();
+      },
+      { threshold: 0.2 },
+    );
+    observer.observe(video);
+    return () => observer.disconnect();
+  }, [reduce, base]);
+
+  if (reduce) {
+    return <img src={`${base}.jpg`} alt={label} className={className} />;
+  }
+
+  return (
+    <video
+      key={base}
+      ref={ref}
+      className={className}
+      poster={`${base}.jpg`}
+      muted
+      loop
+      playsInline
+      preload={eager ? 'auto' : 'metadata'}
+      aria-label={label}
+      onLoadedMetadata={(e) => {
+        if (startAt) e.currentTarget.currentTime = startAt;
+      }}
+    >
+      <source src={`${base}.mp4`} type="video/mp4" />
+      <source src={`${base}.webm`} type="video/webm" />
+    </video>
+  );
 }
 
 /* ================================================================== */
@@ -140,12 +184,10 @@ function Nav() {
 
   return (
     <div className="sticky top-0 z-50 px-4 pt-3 sm:pt-4">
-      {/* Transition CSS assumee : rien ici ne se manipule au doigt, donc l'argument
-          « une transition ne se rattrape pas en plein vol » ne s'applique pas. */}
       <header
-        className={`mx-auto flex max-w-6xl items-center justify-between gap-4 rounded-full border px-3 py-2 transition-[background-color,border-color,box-shadow,backdrop-filter] duration-300 ease-out sm:px-4 ${
+        className={`mx-auto flex max-w-6xl items-center justify-between gap-4 rounded-full border px-3 py-2 transition-[background-color,border-color,box-shadow] duration-300 ease-out sm:px-4 ${
           scrolled
-            ? 'border-white/60 bg-bg-surface/70 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_32px_-20px_rgba(0,0,0,0.25)] backdrop-blur-xl backdrop-saturate-150 dark:border-white/10'
+            ? 'border-border-custom/70 bg-bg-surface/75 shadow-[0_12px_32px_-22px_rgba(29,19,39,0.35)] backdrop-blur-xl backdrop-saturate-150'
             : 'border-transparent bg-transparent'
         }`}
       >
@@ -166,137 +208,44 @@ function Nav() {
             <a
               key={item.href}
               href={item.href}
-              className="rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.005em] text-text-secondary transition-colors duration-150 hover:bg-text-primary/5 hover:text-text-primary"
+              className="rounded-full px-3 py-1.5 text-[13.5px] font-medium tracking-[-0.005em] text-text-secondary transition-colors duration-150 hover:bg-text-primary/5 hover:text-text-primary"
             >
               {item.label}
             </a>
           ))}
         </nav>
 
-        <Link
-          to="/auth/signup"
-          className={`shrink-0 rounded-full bg-accent-corail px-4 py-2 text-[13px] font-semibold tracking-[-0.005em] text-white shadow-[0_1px_2px_rgba(0,0,0,0.10),0_8px_20px_-10px_var(--color-accent-corail)] hover:bg-accent-corail-hover ${PRESSABLE}`}
-        >
-          Devenir créateur
-        </Link>
+        <div className="flex items-center gap-1.5">
+          <Link
+            to="/auth/login"
+            className="hidden rounded-full px-3 py-2 text-[13.5px] font-medium text-text-secondary transition-colors hover:text-text-primary sm:block"
+          >
+            Connexion
+          </Link>
+          <Link
+            to="/auth/signup"
+            className={`shrink-0 rounded-full bg-accent-corail px-4 py-2 text-[13.5px] font-semibold tracking-[-0.005em] text-white hover:bg-accent-corail-hover ${PRESSABLE}`}
+          >
+            Devenir créateur
+          </Link>
+        </div>
       </header>
     </div>
   );
 }
 
 /* ================================================================== */
-/* Maquette telephone — la preuve visuelle du hero                     */
+/* Hero                                                                */
 /* ================================================================== */
 
-/**
- * L'ecran que voit un fan qui ouvre le lien depuis une bio TikTok. Construit en DOM plutot
- * qu'en image : il suit le theme, reste net a toutes les densites, et ne coute pas un
- * telechargement de plus.
- */
-function PhoneMock() {
-  const reduce = useReducedMotion();
-
-  return (
-    <div className="relative">
-      {/* Halo derriere l'appareil — separe le telephone du fond sans bordure */}
-      <div className="pointer-events-none absolute inset-0 -z-10 translate-y-8 scale-90 rounded-full bg-accent-corail/20 blur-[80px]" />
-
-      <div className="relative w-[276px] rounded-[2.75rem] border-[9px] border-[#1c1a18] bg-[#1c1a18] shadow-[0_8px_16px_rgba(0,0,0,0.12),0_40px_80px_-32px_rgba(0,0,0,0.45)]">
-        {/* Encoche */}
-        <div className="absolute left-1/2 top-1.5 z-20 h-[22px] w-[92px] -translate-x-1/2 rounded-full bg-[#1c1a18]" />
-
-        <div className="relative overflow-hidden rounded-[2.15rem] bg-bg-surface">
-          {/* Banniere + avatar */}
-          <div className="h-[86px] bg-linear-to-br from-accent-corail via-pink-500 to-purple-600" />
-          <div className="px-4 pb-4">
-            <div className="-mt-8 mb-3 flex items-end justify-between">
-              <div className="h-16 w-16 rounded-2xl border-[3px] border-bg-surface bg-linear-to-br from-amber-200 to-orange-300" />
-              <button className="mb-1 rounded-full bg-text-primary px-3 py-1.5 text-[10px] font-semibold text-bg-surface">
-                Suivre
-              </button>
-            </div>
-
-            <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-text-primary">
-              Awa Ndiaye
-            </h3>
-            <p className="text-[11px] text-text-secondary">@awa.creatrice · Dakar 🇸🇳</p>
-            <p className="mt-2 text-[11px] leading-[1.5] text-text-secondary">
-              Coaching contenu & croissance organique. Mes méthodes en PDF et vidéo.
-            </p>
-
-            {/* Contenu verrouille — l'element central du produit */}
-            <div className="mt-4 flex flex-col gap-2">
-              <div className="rounded-2xl border border-border-custom/80 bg-bg-primary p-3">
-                <div className="flex items-start gap-2.5">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-corail/12 text-accent-corail">
-                    <FileText size={15} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[11.5px] font-semibold leading-tight text-text-primary">
-                      Booster son audience TikTok
-                    </p>
-                    <p className="mt-0.5 text-[10px] text-text-secondary">PDF · 42 pages</p>
-                  </div>
-                </div>
-                <button className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-xl bg-accent-corail py-2 text-[11px] font-semibold text-white">
-                  <Lock size={11} />
-                  Débloquer · 2 500 FCFA
-                </button>
-              </div>
-
-              <div className="rounded-2xl border border-border-custom/80 bg-bg-primary p-3">
-                <div className="flex items-start gap-2.5">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-purple-500/12 text-purple-600">
-                    <Play size={15} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[11.5px] font-semibold leading-tight text-text-primary">
-                      Masterclass algorithme
-                    </p>
-                    <p className="mt-0.5 text-[10px] text-text-secondary">Vidéo · 20 min</p>
-                  </div>
-                  <span className="shrink-0 rounded-md bg-emerald-500/12 px-1.5 py-0.5 text-[9px] font-bold text-emerald-600">
-                    PAYÉ
-                  </span>
-                </div>
-              </div>
-
-              <button className="flex items-center justify-center gap-1.5 rounded-xl border border-border-custom/80 py-2 text-[11px] font-semibold text-text-secondary">
-                <Heart size={11} className="text-pink-500" />
-                Envoyer un pourboire
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Notification de vente — c'est la promesse cote createur, elle merite d'etre visible.
-          Rebond autorise : quelque chose vient d'aboutir. */}
-      <motion.div
-        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.92 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={reduce ? { duration: 0.25, delay: 0.8 } : { ...SPRING.momentum, delay: 0.9 }}
-        className="absolute -right-4 bottom-24 flex items-center gap-2.5 rounded-2xl border border-white/60 bg-bg-surface/85 py-2.5 pl-2.5 pr-4 shadow-[0_2px_6px_rgba(0,0,0,0.06),0_20px_40px_-20px_rgba(0,0,0,0.3)] backdrop-blur-xl backdrop-saturate-150 dark:border-white/10 sm:-right-12"
-      >
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600">
-          <Check size={15} className="stroke-[3]" />
-        </div>
-        <div className="flex flex-col">
-          <span className="text-[11px] font-semibold leading-tight tracking-[-0.005em] text-text-primary">
-            Vente encaissée
-          </span>
-          <span className="text-[10px] tabular-nums text-text-secondary">+2 250 FCFA · Wave</span>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-/* ================================================================== */
-/* Hero — deux colonnes                                                */
-/* ================================================================== */
-
-const ROTATING_WORDS = ['PDF', 'formations', 'vidéos', 'photos', 'audios'];
+/** `feminine` : le participe s'accorde (« vos vidéos payées », « vos PDF payés »). */
+const ROTATING_WORDS = [
+  { word: 'PDF', feminine: false },
+  { word: 'formations', feminine: true },
+  { word: 'vidéos', feminine: true },
+  { word: 'photos', feminine: true },
+  { word: 'audios', feminine: false },
+];
 
 const PAYMENT_LOGOS = [
   { url: '/payment-icons/wave.png', name: 'Wave' },
@@ -306,70 +255,122 @@ const PAYMENT_LOGOS = [
   { url: '/payment-icons/mixx-by-yas.jpg', name: 'Mixx by Yas' },
 ];
 
+/** Le telephone : cadre en CSS (net a toutes les densites), ecran = scene Remotion. */
+function PhoneScene() {
+  const reduce = useReducedMotion();
+
+  return (
+    <div className="relative">
+      {/* Halo : detache l'appareil du fond sans bordure */}
+      <div className="pointer-events-none absolute inset-x-0 top-1/4 -z-10 mx-auto h-2/3 w-[120%] -translate-x-[8%] rounded-full bg-accent-corail/15 blur-[90px]" />
+
+      <motion.div
+        animate={reduce ? undefined : { y: [0, -10, 0] }}
+        transition={reduce ? undefined : { duration: 7, ease: 'easeInOut', repeat: Infinity }}
+      >
+        <figure
+          aria-label="Démonstration : une fan débloque un PDF et paie avec Wave, sans créer de compte"
+          className="relative w-[272px] rounded-[2.9rem] bg-[#17101F] p-[9px] shadow-[0_10px_20px_-6px_rgba(23,16,31,0.25),0_50px_90px_-36px_rgba(23,16,31,0.55)] sm:w-[292px]"
+        >
+          <div className="absolute left-1/2 top-[15px] z-10 h-[24px] w-[88px] -translate-x-1/2 rounded-full bg-[#17101F]" />
+          <MotionClip
+            name="hero-paiement"
+            eager
+            label="Paiement d'un PDF en Mobile Money sur la boutique d'une créatrice"
+            className="block aspect-[540/1170] w-full rounded-[2.3rem] bg-bg-primary object-cover"
+          />
+        </figure>
+      </motion.div>
+
+      {/* Ce que le createur recoit pendant ce temps — rebond : quelque chose vient d'aboutir */}
+      <motion.div
+        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16, scale: 0.92 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={reduce ? { duration: 0.25, delay: 1 } : { ...SPRING.momentum, delay: 1.1 }}
+        className="absolute -left-6 bottom-28 flex items-center gap-2.5 rounded-2xl border border-border-custom/70 bg-bg-surface/90 py-2.5 pl-2.5 pr-4 shadow-[0_20px_40px_-22px_rgba(29,19,39,0.45)] backdrop-blur-xl sm:-left-16"
+      >
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600">
+          <Check size={16} className="stroke-[3]" />
+        </div>
+        <div className="flex flex-col">
+          <span className="text-[12px] font-semibold leading-tight text-text-primary">Vente encaissée</span>
+          <span className="text-[11px] tabular-nums text-text-secondary">+2 250 FCFA · Wave</span>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 function Hero() {
   const reduce = useReducedMotion();
   const [wordIdx, setWordIdx] = useState(0);
 
   useEffect(() => {
+    if (reduce) return;
     const id = setInterval(() => setWordIdx((p) => (p + 1) % ROTATING_WORDS.length), 2600);
     return () => clearInterval(id);
-  }, []);
+  }, [reduce]);
+
+  const rise = (delay: number, distance = 18) => ({
+    initial: reduce ? { opacity: 0 } : { opacity: 0, y: distance },
+    animate: { opacity: 1, y: 0 },
+    transition: reduce ? { duration: 0.25, delay } : { ...SPRING.ui, delay },
+  });
 
   return (
-    <section className="relative overflow-hidden px-4 pb-24 pt-10 sm:pt-16">
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,#8080801a_1px,transparent_1px),linear-gradient(to_bottom,#8080801a_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_70%_60%_at_30%_10%,black_40%,transparent_100%)]" />
-
-      <div className="relative mx-auto grid max-w-6xl grid-cols-1 items-center gap-14 lg:grid-cols-12 lg:gap-8">
-        {/* Colonne texte — alignee a gauche sur desktop : une colonne centree impose un
-            retour de l'oeil a chaque ligne, ce qui coute cher sur un titre de cette taille */}
-        <div className="flex flex-col items-center gap-6 text-center lg:col-span-7 lg:items-start lg:text-left">
-          <motion.div
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={SPRING.ui}
-            className="inline-flex items-center gap-2.5 rounded-full border border-accent-corail/20 bg-accent-corail/[0.07] px-3.5 py-1.5 text-[11px] font-bold tracking-[0.02em] text-accent-corail"
+    <section className="relative px-4 pb-24 pt-12 sm:pb-32 sm:pt-20">
+      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-16 lg:grid-cols-12 lg:gap-10">
+        <div className="flex flex-col items-center gap-7 text-center lg:col-span-7 lg:items-start lg:text-left">
+          <motion.span
+            {...rise(0, 10)}
+            className="inline-flex items-center gap-2 rounded-full border border-border-custom bg-bg-surface px-3.5 py-1.5 text-[12px] font-semibold text-text-secondary"
           >
-            <span className="relative flex h-1.5 w-1.5 shrink-0">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-corail opacity-70 motion-reduce:animate-none" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent-corail" />
-            </span>
+            <span className="h-1.5 w-1.5 rounded-full bg-accent-mango" />
             TikTok · Instagram · YouTube · Snapchat
-          </motion.div>
+          </motion.span>
 
           <motion.h1
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...SPRING.ui, delay: 0.06 }}
-            className="font-display text-[3rem] font-medium leading-[0.98] tracking-[-0.04em] text-text-primary sm:text-[4rem] lg:text-[4.75rem]"
+            {...rise(0.06, 22)}
+            className="font-display text-[3rem] font-medium leading-[0.98] tracking-[-0.045em] text-text-primary sm:text-[4.25rem] lg:text-[5rem]"
           >
             Vos{' '}
-            <span className="relative inline-flex h-[1em] items-center overflow-hidden align-bottom">
+            <span className="relative inline-flex h-[1.02em] items-center overflow-hidden align-bottom">
               <AnimatePresence mode="wait" initial={false}>
                 <motion.span
                   key={wordIdx}
-                  initial={reduce ? { opacity: 0 } : { opacity: 0, y: '60%' }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={reduce ? { opacity: 0 } : { opacity: 0, y: '-60%' }}
+                  initial={reduce ? { opacity: 0 } : { opacity: 0, y: '70%', filter: 'blur(6px)' }}
+                  animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                  exit={reduce ? { opacity: 0 } : { opacity: 0, y: '-70%', filter: 'blur(6px)' }}
                   transition={reduce ? { duration: 0.18 } : SPRING.snappy}
-                  className="whitespace-nowrap bg-linear-to-r from-accent-corail via-pink-500 to-purple-600 bg-clip-text pr-1 text-transparent"
+                  className="whitespace-nowrap pr-1 text-accent-corail"
                 >
-                  {ROTATING_WORDS[wordIdx]}
+                  {ROTATING_WORDS[wordIdx].word}
                 </motion.span>
               </AnimatePresence>
             </span>
             <br />
-            payés en Mobile&nbsp;Money.
+            payé
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={ROTATING_WORDS[wordIdx].feminine ? 'es' : 's'}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+              >
+                {ROTATING_WORDS[wordIdx].feminine ? 'es' : 's'}
+              </motion.span>
+            </AnimatePresence>{' '}
+            en Mobile&nbsp;Money.
           </motion.h1>
 
           <motion.p
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...SPRING.ui, delay: 0.12 }}
-            className="max-w-lg text-[16px] leading-[1.6] tracking-[-0.005em] text-text-secondary sm:text-[18px]"
+            {...rise(0.12, 16)}
+            className="max-w-lg text-[16.5px] leading-[1.6] tracking-[-0.005em] text-text-secondary sm:text-[18px]"
           >
             Un lien dans votre bio. Vos fans paient en dix secondes avec{' '}
-            <strong className="font-semibold text-text-primary">Wave, Orange, MTN ou Moov</strong>,
-            sans créer de compte, dans{' '}
+            <strong className="font-semibold text-text-primary">Wave, Orange, MTN ou Moov</strong>, sans créer de
+            compte, dans{' '}
             <strong className="font-semibold text-text-primary">
               {COUNTRY_COUNT} pays d'Afrique de l'Ouest et Centrale
             </strong>
@@ -377,31 +378,27 @@ function Hero() {
           </motion.p>
 
           <motion.div
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...SPRING.ui, delay: 0.18 }}
-            className="flex w-full flex-col items-center gap-4 sm:flex-row sm:justify-center lg:justify-start"
+            {...rise(0.18, 14)}
+            className="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row"
           >
             <Link
               to="/auth/signup"
-              className={`flex w-full items-center justify-center gap-2 rounded-full bg-accent-corail px-7 py-4 text-[15px] font-semibold tracking-[-0.01em] text-white shadow-[0_2px_4px_rgba(0,0,0,0.08),0_16px_36px_-16px_var(--color-accent-corail)] hover:bg-accent-corail-hover sm:w-auto ${PRESSABLE}`}
+              className={`group flex w-full items-center justify-center gap-2 rounded-full bg-accent-corail px-7 py-4 text-[15px] font-semibold tracking-[-0.01em] text-white shadow-[0_16px_34px_-16px_var(--color-accent-corail)] hover:bg-accent-corail-hover sm:w-auto ${PRESSABLE}`}
             >
               Ouvrir ma boutique — gratuit
-              <ArrowRight size={17} />
+              <ArrowRight size={17} className="transition-transform duration-200 group-hover:translate-x-0.5" />
             </Link>
             <a
-              href="#live-demo"
-              className={`flex w-full items-center justify-center gap-2 rounded-full border border-border-custom bg-bg-surface px-6 py-4 text-[15px] font-semibold tracking-[-0.01em] text-text-primary hover:bg-bg-surface-hover sm:w-auto ${PRESSABLE}`}
+              href="#how-it-works"
+              className={`flex w-full items-center justify-center rounded-full px-6 py-4 text-[15px] font-semibold tracking-[-0.01em] text-text-primary hover:bg-text-primary/5 sm:w-auto ${PRESSABLE}`}
             >
-              Voir un paiement
+              Comment ça marche
             </a>
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.32, duration: 0.4 }}
-            className="flex flex-col items-center gap-4 sm:flex-row lg:items-center"
+            {...rise(0.28, 8)}
+            className="flex flex-col items-center gap-4 sm:flex-row"
           >
             <div className="flex items-center gap-2.5">
               <div className="flex -space-x-2.5">
@@ -419,8 +416,8 @@ function Hero() {
                   />
                 ))}
               </div>
-              <span className="text-[12.5px] font-semibold tracking-[-0.005em] text-text-primary">
-                +500 créateurs · <span className="text-amber-500">★★★★★</span>
+              <span className="text-[13px] font-semibold tracking-[-0.005em] text-text-primary">
+                +500 créateurs · <span className="text-accent-mango">★★★★★</span>
               </span>
             </div>
 
@@ -433,22 +430,20 @@ function Hero() {
                   src={logo.url}
                   alt={logo.name}
                   title={logo.name}
-                  referrerPolicy="no-referrer"
-                  className="h-7 w-7 rounded-md border border-border-custom/60 bg-white object-contain p-0.5"
+                  className="h-7 w-7 rounded-lg border border-border-custom/70 bg-white object-contain p-0.5"
                 />
               ))}
             </div>
           </motion.div>
         </div>
 
-        {/* Colonne produit */}
         <motion.div
-          initial={reduce ? { opacity: 0 } : { opacity: 0, y: 32, rotate: -3 }}
-          animate={{ opacity: 1, y: 0, rotate: -3 }}
-          transition={reduce ? { duration: 0.3, delay: 0.2 } : { ...SPRING.ui, delay: 0.24 }}
+          initial={reduce ? { opacity: 0 } : { opacity: 0, y: 40, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={reduce ? { duration: 0.3, delay: 0.2 } : { ...SPRING.gentle, delay: 0.15 }}
           className="flex justify-center lg:col-span-5"
         >
-          <PhoneMock />
+          <PhoneScene />
         </motion.div>
       </div>
     </section>
@@ -456,74 +451,30 @@ function Hero() {
 }
 
 /* ================================================================== */
-/* Bandeau defilant                                                    */
-/* ================================================================== */
-
-const MARQUEE_ITEMS = [
-  { name: 'FACEBOOK', icon: <Facebook size={13} className="text-[#1877F2]" /> },
-  {
-    name: 'TIKTOK',
-    icon: (
-      <svg className="h-3.5 w-3.5 fill-current text-text-primary" viewBox="0 0 24 24">
-        <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.02 1.59 4.23.97 1.2 2.27 2.05 3.71 2.45v3.98c-1.8-.12-3.51-.83-4.88-2.02-.19-.17-.37-.36-.54-.56V15c.09 1.41-.33 2.82-1.19 3.94-.85 1.12-2.12 1.88-3.53 2.13-1.41.25-2.88-.04-4.08-.82-1.2-.78-2.06-2.02-2.39-3.44-.33-1.41-.12-2.91.59-4.17.7-1.26 1.88-2.17 3.26-2.53 1.09-.28 2.24-.2 3.28.23V5.51c0-1.83.02-3.66.02-5.49z" />
-      </svg>
-    ),
-  },
-  { name: 'LINKEDIN', icon: <Linkedin size={13} className="text-[#0A66C2]" /> },
-  { name: 'VOTRE SITE', icon: <Globe size={13} className="text-emerald-600" /> },
-  { name: 'CITATIONS', icon: <Quote size={13} className="text-rose-500" /> },
-  { name: 'YOUTUBE', icon: <Youtube size={13} className="text-[#FF0000]" /> },
-  { name: 'PRODUITS', icon: <ShoppingBag size={13} className="text-purple-600" /> },
-  { name: 'X.COM', icon: <X size={13} className="text-text-primary" /> },
-  { name: 'INSTAGRAM', icon: <Instagram size={13} className="text-pink-600" /> },
-];
-
-function Marquee() {
-  return (
-    <section className="overflow-hidden border-y border-border-custom/70 bg-bg-surface/50 py-6">
-      <div className="mx-auto flex max-w-6xl flex-col items-center gap-3.5">
-        <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-text-secondary/70">
-          Un seul lien, partout où vous êtes
-        </span>
-        <div className="mask-fade-edges relative w-full overflow-hidden">
-          <div className="animate-marquee-infinite flex items-center gap-6 py-1">
-            {[...MARQUEE_ITEMS, ...MARQUEE_ITEMS].map((item, idx) => (
-              <div
-                key={`${item.name}-${idx}`}
-                className="flex shrink-0 items-center gap-2 rounded-full border border-border-custom/70 bg-bg-surface px-3.5 py-1.5"
-              >
-                {item.icon}
-                <span className="text-[10px] font-bold tracking-[0.08em] text-text-primary">
-                  {item.name}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ================================================================== */
-/* Parcours — bande sombre                                             */
+/* Comment ca marche — trois etapes, trois scenes                      */
 /* ================================================================== */
 
 const STEPS = [
   {
-    icon: UploadCloud,
+    clip: 'etape-fichier',
+    startAt: 5,
     title: 'Déposez votre fichier',
     body: "PDF, vidéo, audio ou photo. Vous fixez le prix en FCFA, nous générons un lien d'accès signé qui expire après une heure.",
+    label: "Un fichier PDF est déposé, son prix est fixé à 2 500 FCFA et il passe en vente",
   },
   {
-    icon: Share2,
+    clip: 'etape-lien',
+    startAt: 4.67,
     title: 'Collez le lien en bio',
-    body: "TikTok, Instagram, Snapchat, WhatsApp. Vos fans arrivent sur votre page et achètent sans jamais créer de compte.",
+    body: 'TikTok, Instagram, Snapchat, WhatsApp. Vos fans arrivent sur votre page et achètent sans jamais créer de compte.',
+    label: 'Le lien de la boutique est copié puis ajouté aux bios TikTok, Instagram et WhatsApp',
   },
   {
-    icon: Wallet,
+    clip: 'etape-retrait',
+    startAt: 3.2,
     title: 'Retirez sur votre numéro',
     body: 'Chaque vente crédite votre solde immédiatement. Vous demandez un retrait Wave, Orange, MTN ou Moov, traité sous 24h.',
+    label: 'Les ventes Wave, Orange, MTN et Moov arrivent, le solde monte, puis un retrait est envoyé sur Wave',
   },
 ];
 
@@ -531,54 +482,35 @@ function HowItWorks() {
   const enter = useEnter();
 
   return (
-    <section
-      id="how-it-works"
-      className="relative overflow-hidden px-4 py-24 sm:py-28"
-      style={{ backgroundColor: INK }}
-    >
-      <div className="pointer-events-none absolute -left-32 top-0 h-[420px] w-[420px] rounded-full bg-accent-corail/15 blur-[130px]" />
-      <div className="pointer-events-none absolute -right-20 bottom-0 h-[360px] w-[360px] rounded-full bg-purple-600/12 blur-[130px]" />
-
-      <div className="relative mx-auto flex max-w-6xl flex-col gap-16">
-        <motion.div {...enter(20)} className="flex max-w-2xl flex-col gap-4">
-          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent-corail">
-            Le parcours complet
-          </span>
-          <h2 className="font-display text-[2.25rem] font-medium leading-[1.05] tracking-[-0.03em] text-[#FAFAF8] sm:text-[3.25rem]">
-            De votre fichier à votre numéro,<br className="hidden sm:block" /> en trois gestes.
-          </h2>
-          <p className="max-w-md text-[15px] leading-[1.6] tracking-[-0.005em] text-white/55">
+    <section id="how-it-works" className="scroll-mt-24 px-4 py-24 sm:py-32">
+      <div className="mx-auto flex max-w-6xl flex-col gap-14">
+        <motion.div {...enter(20)} className="mx-auto flex max-w-2xl flex-col items-center gap-4 text-center">
+          <span className={EYEBROW}>Comment ça marche</span>
+          <h2 className={H2}>De votre fichier à votre numéro, en trois gestes.</h2>
+          <p className="max-w-md text-[16px] leading-[1.6] text-text-secondary">
             Aucun compte marchand à ouvrir, aucune paperasse, aucune intégration technique.
           </p>
         </motion.div>
 
-        <div className="grid grid-cols-1 gap-px overflow-hidden rounded-3xl bg-white/10 md:grid-cols-3">
-          {STEPS.map((step, idx) => {
-            const Icon = step.icon;
-            return (
-              <motion.article
-                key={step.title}
-                {...enter(24, idx * 0.07)}
-                className="relative flex flex-col gap-5 p-8 sm:p-9"
-                style={{ backgroundColor: INK }}
-              >
-                {/* Numeral en filigrane : donne l'ordre de lecture sans ajouter de bruit */}
-                <span className="font-display pointer-events-none absolute right-6 top-4 text-[4.5rem] font-medium leading-none tracking-[-0.05em] text-white/[0.06]">
-                  {idx + 1}
-                </span>
-
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.07] text-accent-corail ring-1 ring-inset ring-white/10">
-                  <Icon size={21} />
-                </div>
-                <h3 className="font-display relative text-[20px] font-medium leading-tight tracking-[-0.02em] text-[#FAFAF8]">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+          {STEPS.map((step, idx) => (
+            <motion.article key={step.title} {...enter(32, idx * 0.08)} className={`${CARD} flex flex-col overflow-hidden p-2.5`}>
+              <MotionClip
+                name={step.clip}
+                themed
+                startAt={step.startAt}
+                label={step.label}
+                className="block aspect-[16/10] w-full rounded-[20px] bg-bg-primary object-cover ring-1 ring-border-custom/70"
+              />
+              <div className="flex flex-col gap-2.5 px-4 pb-5 pt-5">
+                <span className="text-[12px] font-semibold tabular-nums text-accent-corail">Étape {idx + 1}</span>
+                <h3 className="font-display text-[21px] font-medium leading-tight tracking-[-0.02em] text-text-primary">
                   {step.title}
                 </h3>
-                <p className="relative text-[14px] leading-[1.65] tracking-[-0.005em] text-white/55">
-                  {step.body}
-                </p>
-              </motion.article>
-            );
-          })}
+                <p className="text-[14.5px] leading-[1.6] text-text-secondary">{step.body}</p>
+              </div>
+            </motion.article>
+          ))}
         </div>
       </div>
     </section>
@@ -619,14 +551,13 @@ const DEMO_POINTS = [
 function CheckoutDemo() {
   const enter = useEnter();
   const reduce = useReducedMotion();
-  const [method, setMethod] = useState<DemoMethod>('carte');
+  const [method, setMethod] = useState<DemoMethod>('wave');
   const [state, setState] = useState<DemoState>('idle');
   const [phone, setPhone] = useState('');
   const [card, setCard] = useState('4242 4242 4242 4242');
   const timerRef = useRef<number | null>(null);
 
-  // Un minuteur laisse pendant sur une page qu'on quitte rallume l'etat plus tard, sur une
-  // carte que l'utilisateur a peut-etre deja reinitialisee.
+  // Un minuteur laisse pendant sur une page qu'on quitte rallume l'etat plus tard.
   useEffect(() => () => { if (timerRef.current) window.clearTimeout(timerRef.current); }, []);
 
   const pay = () => {
@@ -640,8 +571,7 @@ function CheckoutDemo() {
     setCard('4242 4242 4242 4242');
   };
 
-  /** Materialiser, pas seulement fondre : le flou et l'echelle bougent ensemble, donc l'ecran
-   *  suivant se lit comme une matiere qui arrive et non comme une opacite qui monte. */
+  /** L'ecran suivant se materialise (flou + echelle) au lieu de simplement apparaitre. */
   const materialize = reduce
     ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } }
     : {
@@ -651,23 +581,16 @@ function CheckoutDemo() {
       };
 
   return (
-    <section id="live-demo" className="px-4 py-24 sm:py-28">
-      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 lg:grid-cols-12 lg:gap-16">
-        {/* Argumentaire a gauche, produit a droite — l'inverse du hero, pour que la page
-            n'alterne pas mecaniquement le meme schema a chaque section */}
+    <section id="live-demo" className="scroll-mt-24 px-4 py-24 sm:py-32">
+      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-14 lg:grid-cols-12 lg:gap-16">
         <motion.div {...enter(24)} className="flex flex-col gap-7 lg:col-span-6">
-          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent-corail">
-            Essayez, c'est réel
-          </span>
-          <h2 className="font-display text-[2.25rem] font-medium leading-[1.05] tracking-[-0.03em] text-text-primary sm:text-[3rem]">
-            Voilà ce que votre fan voit.
-          </h2>
-          <p className="max-w-md text-[15px] leading-[1.65] tracking-[-0.005em] text-text-secondary">
-            Choisissez un moyen de paiement et appuyez. L'interface est celle de production —
-            seul le débit est simulé.
+          <span className={EYEBROW}>Essayez</span>
+          <h2 className={H2}>Voilà ce que votre fan voit.</h2>
+          <p className="max-w-md text-[16px] leading-[1.6] text-text-secondary">
+            Choisissez un moyen de paiement et appuyez. L'interface est celle de production, seul le débit est simulé.
           </p>
 
-          <div className="flex flex-col gap-5 pt-1">
+          <div className="flex flex-col gap-6 pt-1">
             {DEMO_POINTS.map((point) => {
               const Icon = point.icon;
               return (
@@ -676,12 +599,8 @@ function CheckoutDemo() {
                     <Icon size={18} />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <h4 className="text-[15px] font-semibold tracking-[-0.01em] text-text-primary">
-                      {point.title}
-                    </h4>
-                    <p className="text-[13.5px] leading-[1.6] tracking-[-0.005em] text-text-secondary">
-                      {point.body}
-                    </p>
+                    <h3 className="text-[15.5px] font-semibold tracking-[-0.01em] text-text-primary">{point.title}</h3>
+                    <p className="text-[14px] leading-[1.6] text-text-secondary">{point.body}</p>
                   </div>
                 </div>
               );
@@ -689,10 +608,8 @@ function CheckoutDemo() {
           </div>
         </motion.div>
 
-        <motion.div {...enter(28, 0.08)} className="flex justify-center lg:col-span-6">
-          <div
-            className={`${CARD} flex min-h-[430px] w-full max-w-[380px] flex-col justify-between overflow-hidden p-6`}
-          >
+        <motion.div {...enter(32, 0.08)} className="flex justify-center lg:col-span-6">
+          <div className={`${CARD} flex min-h-[440px] w-full max-w-[390px] flex-col justify-between overflow-hidden p-6`}>
             <AnimatePresence mode="wait" initial={false}>
               {state === 'idle' && (
                 <motion.div key="idle" {...materialize} transition={SPRING.snappy} className="flex flex-col gap-5">
@@ -701,15 +618,15 @@ function CheckoutDemo() {
                       <Download size={19} />
                     </div>
                     <div className="flex flex-col">
-                      <h4 className="text-[14px] font-semibold leading-tight tracking-[-0.01em] text-text-primary">
+                      <h3 className="text-[14.5px] font-semibold leading-tight tracking-[-0.01em] text-text-primary">
                         Guide : Booster sa communauté
-                      </h4>
-                      <span className="mt-0.5 text-[12px] text-text-secondary">Par Awa Ndiaye</span>
+                      </h3>
+                      <span className="mt-0.5 text-[12.5px] text-text-secondary">Par Awa Ndiaye</span>
                     </div>
                   </div>
 
                   <div className="py-1 text-center">
-                    <span className="font-display text-[2rem] font-medium tracking-[-0.03em] tabular-nums text-text-primary">
+                    <span className="font-display text-[2.1rem] font-medium tracking-[-0.03em] tabular-nums text-text-primary">
                       2 500 FCFA
                     </span>
                   </div>
@@ -717,15 +634,14 @@ function CheckoutDemo() {
                   <div className="h-px w-full bg-border-custom" />
 
                   <div className="flex flex-col gap-2">
-                    <span className="text-center text-[10px] font-bold uppercase tracking-[0.14em] text-text-secondary">
-                      Moyen de paiement
-                    </span>
+                    <span className="text-center text-[12px] font-semibold text-text-secondary">Moyen de paiement</span>
                     <div className="grid grid-cols-3 gap-2">
                       {DEMO_METHODS.map((m) => (
                         <button
                           key={m.id}
                           onClick={() => setMethod(m.id)}
-                          className={`rounded-xl border py-2 text-[12px] font-semibold ${PRESSABLE} ${
+                          aria-pressed={method === m.id}
+                          className={`cursor-pointer rounded-xl border py-2.5 text-[13px] font-semibold ${PRESSABLE} ${
                             method === m.id
                               ? m.active
                               : 'border-border-custom bg-bg-primary text-text-secondary hover:bg-bg-surface-hover'
@@ -738,32 +654,34 @@ function CheckoutDemo() {
                   </div>
 
                   <div className="flex flex-col gap-2">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-text-secondary">
+                    <label htmlFor="demo-number" className="text-[12px] font-semibold text-text-secondary">
                       {method === 'carte' ? 'Numéro de carte' : 'Numéro de téléphone'}
-                    </span>
+                    </label>
                     <div className="flex items-center gap-3 rounded-xl border border-border-custom bg-bg-primary px-4 py-3 transition-colors duration-150 focus-within:border-accent-corail focus-within:bg-bg-surface">
                       {method === 'carte' ? (
                         <>
                           <CreditCard size={17} className="shrink-0 text-text-secondary" />
                           <input
+                            id="demo-number"
                             type="text"
                             inputMode="numeric"
                             maxLength={19}
                             value={card}
                             onChange={(e) => setCard(e.target.value)}
                             placeholder="4242 •••• •••• 4242"
-                            className="w-full border-none bg-transparent p-0 text-[14px] font-medium tracking-[0.01em] text-text-primary outline-none placeholder:text-text-secondary/40"
+                            className="w-full border-none bg-transparent p-0 text-[14.5px] font-medium tracking-[0.01em] text-text-primary outline-none placeholder:text-text-secondary/50"
                           />
                         </>
                       ) : (
                         <>
                           <Smartphone size={17} className="shrink-0 text-text-secondary" />
                           <input
+                            id="demo-number"
                             type="tel"
                             value={phone}
                             onChange={(e) => setPhone(e.target.value)}
                             placeholder={method === 'wave' ? '+221 77 123 45 67' : '+225 07 123 456 78'}
-                            className="w-full border-none bg-transparent p-0 text-[14px] font-medium tracking-[0.01em] text-text-primary outline-none placeholder:text-text-secondary/40"
+                            className="w-full border-none bg-transparent p-0 text-[14.5px] font-medium tracking-[0.01em] text-text-primary outline-none placeholder:text-text-secondary/50"
                           />
                         </>
                       )}
@@ -772,7 +690,7 @@ function CheckoutDemo() {
 
                   <button
                     onClick={pay}
-                    className={`mt-1 w-full rounded-xl bg-accent-corail py-3.5 text-[14px] font-semibold tracking-[-0.005em] text-white shadow-[0_1px_2px_rgba(0,0,0,0.08),0_12px_28px_-14px_var(--color-accent-corail)] hover:bg-accent-corail-hover ${PRESSABLE}`}
+                    className={`mt-1 w-full cursor-pointer rounded-xl bg-accent-corail py-3.5 text-[14.5px] font-semibold tracking-[-0.005em] text-white hover:bg-accent-corail-hover ${PRESSABLE}`}
                   >
                     Payer 2 500 FCFA
                   </button>
@@ -780,18 +698,13 @@ function CheckoutDemo() {
               )}
 
               {state === 'paying' && (
-                <motion.div
-                  key="paying"
-                  {...materialize}
-                  transition={SPRING.snappy}
-                  className="my-auto flex flex-col items-center gap-5 py-10 text-center"
-                >
+                <motion.div key="paying" {...materialize} transition={SPRING.snappy} className="my-auto flex flex-col items-center gap-5 py-10 text-center">
                   <div className="h-11 w-11 animate-spin rounded-full border-[3px] border-border-custom border-t-accent-corail motion-reduce:animate-none" />
                   <div className="flex flex-col gap-1.5 px-2">
-                    <h5 className="text-[14px] font-semibold tracking-[-0.01em] text-text-primary">
+                    <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-text-primary">
                       {method === 'carte' ? 'Validation 3D Secure…' : 'Envoi de la demande…'}
-                    </h5>
-                    <p className="text-[12.5px] leading-[1.6] text-text-secondary">
+                    </h3>
+                    <p className="text-[13px] leading-[1.6] text-text-secondary">
                       {method === 'carte'
                         ? 'Vérification en cours avec votre établissement bancaire.'
                         : 'Confirmez la transaction via la notification de votre opérateur.'}
@@ -801,14 +714,8 @@ function CheckoutDemo() {
               )}
 
               {state === 'success' && (
-                <motion.div
-                  key="success"
-                  {...materialize}
-                  transition={SPRING.snappy}
-                  className="flex h-full flex-col justify-between gap-6 py-1"
-                >
+                <motion.div key="success" {...materialize} transition={SPRING.snappy} className="flex h-full flex-col justify-between gap-6 py-1">
                   <div className="my-auto flex flex-col items-center gap-4 px-2 text-center">
-                    {/* Rebond autorise : quelque chose vient d'aboutir */}
                     <motion.div
                       initial={reduce ? { opacity: 0 } : { scale: 0.6, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
@@ -818,10 +725,8 @@ function CheckoutDemo() {
                       <Check size={30} className="stroke-[3]" />
                     </motion.div>
                     <div className="flex flex-col gap-1">
-                      <h4 className="font-display text-[19px] font-medium tracking-[-0.02em] text-text-primary">
-                        Paiement réussi
-                      </h4>
-                      <p className="text-[12.5px] leading-[1.6] text-text-secondary">
+                      <h3 className="font-display text-[20px] font-medium tracking-[-0.02em] text-text-primary">Paiement réussi</h3>
+                      <p className="text-[13px] leading-[1.6] text-text-secondary">
                         Le guide a été déverrouillé et envoyé automatiquement.
                       </p>
                     </div>
@@ -829,7 +734,7 @@ function CheckoutDemo() {
 
                   <button
                     onClick={reset}
-                    className={`w-full rounded-xl border border-border-custom py-3 text-[12.5px] font-semibold text-text-secondary hover:bg-bg-surface-hover hover:text-text-primary ${PRESSABLE}`}
+                    className={`w-full cursor-pointer rounded-xl border border-border-custom py-3 text-[13px] font-semibold text-text-secondary hover:bg-bg-surface-hover hover:text-text-primary ${PRESSABLE}`}
                   >
                     Recommencer la démonstration
                   </button>
@@ -844,88 +749,68 @@ function CheckoutDemo() {
 }
 
 /* ================================================================== */
-/* Sources de revenus — grille bento                                   */
+/* Trois facons d'encaisser                                            */
 /* ================================================================== */
+
+const STREAMS = [
+  {
+    icon: ShoppingBag,
+    title: 'Vendez vos contenus exclusifs',
+    body: "Guides, formations, photos, vidéos. Vous fixez le prix, MomoLink encaisse et livre automatiquement dès le paiement validé, avec un lien signé qui expire au bout d'une heure.",
+    tags: ['PDF', 'Vidéo', 'Audio', 'Photo', 'Archive ZIP'],
+  },
+  {
+    icon: Heart,
+    title: 'Dons et pourboires',
+    body: 'Un don libre dès 1 000 FCFA depuis votre page, avec un message si le fan le souhaite.',
+  },
+  {
+    icon: MessageCircle,
+    title: 'Messages directs',
+    body: 'Messages et propositions de partenariat, gratuits, centralisés dans votre tableau de bord.',
+  },
+];
 
 function RevenueStreams() {
   const enter = useEnter();
 
   return (
-    <section
-      id="features"
-      className="border-y border-border-custom/70 bg-bg-surface/40 px-4 py-24 sm:py-28"
-    >
-      <div className="mx-auto flex max-w-6xl flex-col gap-12">
-        <motion.div {...enter(20)} className="flex max-w-xl flex-col gap-4">
-          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent-corail">
-            Trois façons d'encaisser
-          </span>
-          <h2 className="font-display text-[2.25rem] font-medium leading-[1.05] tracking-[-0.03em] text-text-primary sm:text-[3rem]">
-            Bien plus qu'une boutique.
-          </h2>
+    <section id="features" className="px-4 py-24 sm:py-32">
+      <div className="mx-auto flex max-w-6xl flex-col gap-14">
+        <motion.div {...enter(20)} className="flex max-w-2xl flex-col gap-4">
+          <span className={EYEBROW}>Trois façons d'encaisser</span>
+          <h2 className={H2}>Bien plus qu'une boutique.</h2>
         </motion.div>
 
-        {/* Bento : la vente de contenu est l'offre principale, elle occupe quatre fois la
-            surface des deux autres. Trois cartes egales feraient croire a trois options
-            equivalentes. */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3 md:grid-rows-2">
-          <motion.article
-            {...enter(24)}
-            className={`${CARD} relative flex flex-col justify-between overflow-hidden p-8 md:col-span-2 md:row-span-2 sm:p-10`}
-          >
-            <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-accent-corail/10 blur-3xl" />
-
-            <div className="relative flex flex-col gap-4">
-              <div className="flex h-13 w-13 items-center justify-center rounded-2xl bg-accent-corail/10 p-3.5 text-accent-corail">
-                <ShoppingBag size={22} />
-              </div>
-              <h3 className="font-display max-w-sm text-[26px] font-medium leading-[1.15] tracking-[-0.025em] text-text-primary sm:text-[30px]">
-                Vendez vos contenus exclusifs
-              </h3>
-              <p className="max-w-md text-[14.5px] leading-[1.65] tracking-[-0.005em] text-text-secondary">
-                Guides, formations, photos, vidéos. Vous fixez le prix, MomoLink encaisse et livre
-                automatiquement dès le paiement validé — avec un lien signé qui expire au bout
-                d'une heure.
-              </p>
-            </div>
-
-            {/* Petite preuve visuelle : les formats acceptes, plutot qu'une liste a puces */}
-            <div className="relative mt-8 flex flex-wrap gap-2">
-              {['PDF', 'Vidéo', 'Audio', 'Photo', 'Archive ZIP'].map((format) => (
-                <span
-                  key={format}
-                  className="rounded-full border border-border-custom/70 bg-bg-primary px-3 py-1.5 text-[11.5px] font-semibold tracking-[-0.005em] text-text-secondary"
-                >
-                  {format}
-                </span>
-              ))}
-            </div>
-          </motion.article>
-
-          <motion.article {...enter(24, 0.06)} className={`${CARD} flex flex-col gap-3.5 p-7`}>
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-pink-500/10 text-pink-500">
-              <Heart size={19} />
-            </div>
-            <h3 className="font-display text-[19px] font-medium leading-tight tracking-[-0.02em] text-text-primary">
-              Dons & pourboires
-            </h3>
-            <p className="text-[13.5px] leading-[1.6] tracking-[-0.005em] text-text-secondary">
-              Un don libre dès 1 000 FCFA depuis votre page, avec un message si le fan le souhaite.
-            </p>
-          </motion.article>
-
-          <motion.article {...enter(24, 0.12)} className={`${CARD} flex flex-col gap-3.5 p-7`}>
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-500">
-              <MessageCircle size={19} />
-            </div>
-            <h3 className="font-display text-[19px] font-medium leading-tight tracking-[-0.02em] text-text-primary">
-              Messages directs
-            </h3>
-            <p className="text-[13.5px] leading-[1.6] tracking-[-0.005em] text-text-secondary">
-              Messages et propositions de partenariat, gratuits, centralisés dans votre tableau de
-              bord.
-            </p>
-          </motion.article>
+        {/* Trois colonnes separees par un filet en tete : la hierarchie vient de la largeur
+            (la vente de contenu, offre principale, occupe deux colonnes sur quatre) et non de
+            cadres et de degrades. */}
+        <div className="grid grid-cols-1 gap-x-10 gap-y-12 md:grid-cols-2 lg:grid-cols-4">
+          {STREAMS.map((s, idx) => {
+            const Icon = s.icon;
+            return (
+              <motion.article
+                key={s.title}
+                {...enter(24, idx * 0.08)}
+                className={`flex flex-col gap-4 border-t border-border-custom pt-7 ${idx === 0 ? 'md:col-span-2' : ''}`}
+              >
+                <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${idx === 1 ? 'bg-accent-mango/15 text-success-gold' : 'bg-accent-corail/10 text-accent-corail'}`}>
+                  <Icon size={20} />
+                </div>
+                <h3 className="font-display text-[22px] font-medium leading-tight tracking-[-0.02em] text-text-primary">{s.title}</h3>
+                <p className="text-[15px] leading-[1.6] text-text-secondary">{s.body}</p>
+                {s.tags && (
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {s.tags.map((t) => (
+                      <span key={t} className="rounded-full border border-border-custom bg-bg-surface px-3 py-1.5 text-[12px] font-semibold text-text-secondary">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </motion.article>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -933,99 +818,59 @@ function RevenueStreams() {
 }
 
 /* ================================================================== */
-/* Tarifs — bande sombre                                               */
+/* Tarifs                                                              */
 /* ================================================================== */
+
+const PRICES = [
+  { value: 'Gratuit', label: 'Inscription et création de boutique' },
+  { value: '10 %', label: 'Commission par vente ou don réussi' },
+  { value: '4 990 FCFA', unit: '/mois', label: 'MomoLink Pro, pour publier du contenu et demander des retraits' },
+];
 
 function Pricing() {
   const enter = useEnter();
 
   return (
-    <section
-      id="pricing"
-      className="relative overflow-hidden px-4 py-24 sm:py-28"
-      style={{ backgroundColor: INK }}
-    >
-      <div className="pointer-events-none absolute -right-32 top-10 h-[420px] w-[420px] rounded-full bg-accent-corail/15 blur-[130px]" />
-
-      <div className="relative mx-auto grid max-w-6xl grid-cols-1 items-center gap-14 lg:grid-cols-12 lg:gap-16">
-        <motion.div {...enter(24)} className="flex flex-col gap-5 lg:col-span-6">
-          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent-corail">
-            Tarifs transparents
-          </span>
-          <h2 className="font-display text-[2.25rem] font-medium leading-[1.05] tracking-[-0.03em] text-[#FAFAF8] sm:text-[3rem]">
-            Sans Stripe.<br />Sans PayPal.<br />Sans blocage.
-          </h2>
-          <p className="max-w-md text-[15px] leading-[1.65] tracking-[-0.005em] text-white/55">
-            La plupart des outils de monétisation imposent un compte Stripe ou PayPal,
-            inaccessibles ou très limités en Afrique de l'Ouest et Centrale. MomoLink se branche
-            sur ce que vos fans utilisent déjà tous les jours.
+    <section id="pricing" className="scroll-mt-24 px-4 py-24 sm:py-32">
+      <div className="mx-auto flex max-w-5xl flex-col gap-12">
+        <motion.div {...enter(20)} className="mx-auto flex max-w-2xl flex-col items-center gap-4 text-center">
+          <span className={EYEBROW}>Tarifs</span>
+          <h2 className={H2}>Sans Stripe. Sans PayPal. Sans blocage.</h2>
+          <p className="max-w-xl text-[16px] leading-[1.6] text-text-secondary">
+            La plupart des outils de monétisation imposent un compte Stripe ou PayPal, inaccessibles ou très limités en
+            Afrique de l'Ouest et Centrale. MomoLink se branche sur ce que vos fans utilisent déjà tous les jours.
           </p>
-
-          <ul className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {[
-              'Taux de conversion imbattable',
-              'Support réactif 24/7',
-              'Sécurisation contre le partage',
-              "Zéro frais d'installation",
-            ].map((label) => (
-              <li key={label} className="flex items-start gap-2">
-                <Check size={15} className="mt-0.5 shrink-0 text-accent-corail" />
-                <span className="text-[13px] font-medium tracking-[-0.005em] text-white/80">
-                  {label}
-                </span>
-              </li>
-            ))}
-          </ul>
         </motion.div>
 
-        <motion.div
-          {...enter(24, 0.08)}
-          className="relative flex flex-col gap-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-7 backdrop-blur-xl sm:p-9 lg:col-span-6"
-        >
-          <div className="flex flex-col gap-1">
-            <h3 className="font-display text-[1.5rem] font-medium tracking-[-0.025em] text-[#FAFAF8]">
-              Combien ça coûte ?
-            </h3>
-            <p className="text-[13px] text-white/50">Aucun frais caché, aucun engagement.</p>
-          </div>
-
-          <div className="flex flex-col">
-            {[
-              { label: 'Inscription & création de boutique', value: 'Gratuit', tone: 'text-emerald-400' },
-              { label: 'Commission par vente ou don', value: '10%', tone: 'text-accent-corail' },
-            ].map((row) => (
-              <div
-                key={row.label}
-                className="flex items-center justify-between gap-3 border-b border-white/10 py-3.5"
-              >
-                <span className="text-[13.5px] font-medium tracking-[-0.005em] text-white/85">
-                  {row.label}
+        <motion.div {...enter(28, 0.06)} className={`${CARD} overflow-hidden`}>
+          <div className="grid grid-cols-1 divide-y divide-border-custom md:grid-cols-3 md:divide-x md:divide-y-0">
+            {PRICES.map((p) => (
+              <div key={p.label} className="flex flex-col gap-2 p-8 sm:p-9">
+                <span className="font-display text-[2.25rem] font-medium leading-none tracking-[-0.035em] text-text-primary tabular-nums">
+                  {p.value}
+                  {p.unit && <span className="ml-1 text-[15px] font-medium tracking-normal text-text-secondary">{p.unit}</span>}
                 </span>
-                <span className={`text-[14px] font-bold tabular-nums ${row.tone}`}>{row.value}</span>
+                <span className="text-[14.5px] leading-[1.55] text-text-secondary">{p.label}</span>
               </div>
             ))}
-
-            <div className="flex items-start justify-between gap-4 py-3.5">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-[13.5px] font-medium tracking-[-0.005em] text-white/85">
-                  Formule MomoLink Pro
-                </span>
-                <span className="text-[12px] leading-[1.5] text-white/45">
-                  Requise pour publier du contenu et demander des retraits.
-                </span>
-              </div>
-              <span className="whitespace-nowrap text-[14px] font-bold tabular-nums text-accent-corail">
-                4 990 FCFA<span className="text-[11px] font-medium text-white/45">/mois</span>
-              </span>
-            </div>
           </div>
 
-          <Link
-            to="/auth/signup"
-            className={`w-full rounded-full bg-accent-corail py-4 text-center text-[14.5px] font-semibold tracking-[-0.005em] text-white shadow-[0_2px_4px_rgba(0,0,0,0.2),0_16px_36px_-16px_var(--color-accent-corail)] hover:bg-accent-corail-hover ${PRESSABLE}`}
-          >
-            Ouvrir ma boutique — 2 minutes
-          </Link>
+          <div className="flex flex-col items-center justify-between gap-6 border-t border-border-custom bg-bg-primary/60 p-6 sm:flex-row sm:px-9">
+            <ul className="grid grid-cols-1 gap-x-8 gap-y-2.5 sm:grid-cols-2">
+              {['Aucun frais caché, aucun engagement', 'Sécurisation contre le partage', "Zéro frais d'installation", 'Support réactif 24/7'].map((label) => (
+                <li key={label} className="flex items-center gap-2 text-[14px] text-text-primary">
+                  <Check size={15} className="shrink-0 text-accent-corail" />
+                  {label}
+                </li>
+              ))}
+            </ul>
+            <Link
+              to="/auth/signup"
+              className={`shrink-0 rounded-full bg-accent-corail px-7 py-3.5 text-[14.5px] font-semibold text-white hover:bg-accent-corail-hover ${PRESSABLE}`}
+            >
+              Ouvrir ma boutique
+            </Link>
+          </div>
         </motion.div>
       </div>
     </section>
@@ -1074,55 +919,46 @@ const FAQ_DATA = [
 function Faq() {
   const enter = useEnter();
   const reduce = useReducedMotion();
-  // Toutes fermees a l'arrivee : une premiere reponse deja ouverte se lit comme un bug
-  // d'affichage plutot que comme une invitation a cliquer.
+  // Toutes fermees a l'arrivee : une reponse deja ouverte se lit comme un bug d'affichage.
   const [openIdx, setOpenIdx] = useState<number | null>(null);
 
   return (
-    <section id="faq" className="px-4 py-24 sm:py-28">
-      {/* Titre a gauche, liste a droite : la question courante reste alignee avec le titre
-          au lieu de pousser tout le bloc vers le bas a chaque ouverture */}
+    <section id="faq" className="scroll-mt-24 px-4 py-24 sm:py-32">
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-10 lg:grid-cols-12 lg:gap-16">
         <motion.div {...enter(20)} className="flex flex-col gap-4 lg:col-span-4">
-          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent-corail">
-            Questions fréquentes
-          </span>
-          <h2 className="font-display text-[2rem] font-medium leading-[1.08] tracking-[-0.03em] text-text-primary sm:text-[2.5rem]">
+          <span className={EYEBROW}>Questions fréquentes</span>
+          <h2 className="font-display text-[2.1rem] font-medium leading-[1.06] tracking-[-0.035em] text-text-primary sm:text-[2.6rem]">
             Tout ce que vous devez savoir.
           </h2>
-          <p className="text-[14px] leading-[1.6] text-text-secondary">
+          <p className="text-[15px] leading-[1.6] text-text-secondary">
             Une question qui n'est pas là ?{' '}
-            <a href="mailto:support@momolink.pro" className="text-accent-corail hover:underline">
+            <a href="mailto:support@momolink.pro" className="font-medium text-accent-corail hover:underline">
               Écrivez-nous
             </a>
             , on répond sous 24h.
           </p>
         </motion.div>
 
-        <motion.div {...enter(20, 0.06)} className="flex flex-col gap-2.5 lg:col-span-8">
+        <motion.div {...enter(20, 0.06)} className="flex flex-col border-t border-border-custom lg:col-span-8">
           {FAQ_DATA.map((faq, idx) => {
             const isOpen = openIdx === idx;
             return (
-              <div
-                key={faq.q}
-                className="overflow-hidden rounded-2xl border border-border-custom/70 bg-bg-surface"
-              >
+              <div key={faq.q} className="border-b border-border-custom">
                 <button
                   onClick={() => setOpenIdx(isOpen ? null : idx)}
                   aria-expanded={isOpen}
-                  className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors duration-150 hover:bg-text-primary/[0.03]"
+                  className="flex w-full cursor-pointer items-center justify-between gap-6 py-5 text-left"
                 >
-                  <span className="text-[14px] font-semibold tracking-[-0.01em] text-text-primary">
-                    {faq.q}
-                  </span>
-                  {/* Le chevron tourne au lieu d'etre remplace : meme objet, meme trajet
-                      aller/retour */}
+                  <span className="text-[15.5px] font-semibold tracking-[-0.01em] text-text-primary">{faq.q}</span>
+                  {/* Le meme signe tourne en croix : un seul objet, aller et retour */}
                   <motion.span
                     animate={{ rotate: isOpen ? 45 : 0 }}
                     transition={reduce ? { duration: 0.15 } : SPRING.snappy}
-                    className={`shrink-0 ${isOpen ? 'text-accent-corail' : 'text-text-secondary'}`}
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors duration-200 ${
+                      isOpen ? 'border-accent-corail bg-accent-corail text-white' : 'border-border-custom text-text-secondary'
+                    }`}
                   >
-                    <Plus size={17} />
+                    <Plus size={16} />
                   </motion.span>
                 </button>
 
@@ -1132,12 +968,10 @@ function Faq() {
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: 'auto', opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
-                      transition={reduce ? { duration: 0.18 } : SPRING.snappy}
+                      transition={reduce ? { duration: 0.18 } : SPRING.ui}
                       className="overflow-hidden"
                     >
-                      <p className="px-5 pb-4 text-[13.5px] leading-[1.65] tracking-[-0.005em] text-text-secondary">
-                        {faq.a}
-                      </p>
+                      <p className="max-w-2xl pb-6 pr-12 text-[14.5px] leading-[1.65] text-text-secondary">{faq.a}</p>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -1151,47 +985,42 @@ function Faq() {
 }
 
 /* ================================================================== */
-/* CTA final + pied de page sombre                                     */
+/* Appel final + pied de page                                          */
 /* ================================================================== */
 
 function FinalCta() {
   const enter = useEnter();
   return (
-    <section className="px-4 pb-8">
+    <section className="px-4 pb-24 pt-8 sm:pb-32">
       <motion.div
         {...enter(28)}
-        className="relative mx-auto flex max-w-6xl flex-col items-center gap-7 overflow-hidden rounded-[36px] bg-linear-to-br from-accent-corail via-pink-600 to-purple-700 px-6 py-20 text-center sm:px-16"
+        className="relative mx-auto flex max-w-4xl flex-col items-center gap-7 overflow-hidden px-6 py-16 text-center"
       >
-        <div className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-white/20 blur-[90px]" />
-        <div className="pointer-events-none absolute -bottom-24 -left-16 h-72 w-72 rounded-full bg-white/10 blur-[90px]" />
-
-        <h2 className="font-display relative max-w-3xl text-[2.25rem] font-medium leading-[1.02] tracking-[-0.035em] text-white sm:text-[3.5rem]">
-          Votre audience est déjà là.<br className="hidden sm:block" /> Faites-la payer.
+        <img src={LOGO_URL} alt="" className="h-14 w-14 rounded-2xl object-contain shadow-[0_14px_30px_-16px_rgba(109,40,217,0.6)]" />
+        <h2 className="font-display max-w-3xl text-[2.4rem] font-medium leading-[1.02] tracking-[-0.04em] text-text-primary sm:text-[3.75rem] text-balance">
+          Votre audience est déjà là. Faites-la payer.
         </h2>
-        <p className="relative max-w-lg text-[15.5px] leading-[1.6] tracking-[-0.005em] text-white/85">
-          Ouvrez votre boutique en deux minutes, collez le lien dans votre bio, encaissez votre
-          première vente ce soir.
+        <p className="max-w-lg text-[16.5px] leading-[1.6] text-text-secondary">
+          Ouvrez votre boutique en deux minutes, collez le lien dans votre bio, encaissez votre première vente ce soir.
         </p>
 
         <Link
           to="/auth/signup"
-          className={`relative flex items-center justify-center gap-2 rounded-full bg-white px-8 py-4 text-[15px] font-semibold tracking-[-0.01em] text-accent-corail shadow-[0_2px_6px_rgba(0,0,0,0.12),0_18px_40px_-18px_rgba(0,0,0,0.5)] ${PRESSABLE}`}
+          className={`group flex items-center justify-center gap-2 rounded-full bg-accent-corail px-8 py-4 text-[15px] font-semibold tracking-[-0.01em] text-white shadow-[0_16px_34px_-16px_var(--color-accent-corail)] hover:bg-accent-corail-hover ${PRESSABLE}`}
         >
           Créer mon compte créateur
-          <ArrowRight size={17} />
+          <ArrowRight size={17} className="transition-transform duration-200 group-hover:translate-x-0.5" />
         </Link>
 
-        {/* Onze pays ne tiennent plus sur une ligne de texte : on passe en pastilles, qui
-            supportent le retour a la ligne sans se lire comme une phrase coupee en deux */}
-        <div className="relative flex flex-col items-center gap-3">
-          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/60">
+        <div className="flex flex-col items-center gap-3 pt-2">
+          <span className="text-[12px] font-semibold uppercase tracking-[0.14em] text-text-secondary">
             Disponible dans {COUNTRY_COUNT} pays
           </span>
           <div className="flex max-w-2xl flex-wrap items-center justify-center gap-1.5">
             {COVERED_COUNTRIES.map((country) => (
               <span
                 key={country.code}
-                className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[11.5px] font-semibold tracking-[-0.005em] text-white/90 backdrop-blur-sm"
+                className="flex items-center gap-1.5 rounded-full border border-border-custom bg-bg-surface px-3 py-1 text-[12.5px] font-medium text-text-secondary"
               >
                 <span aria-hidden="true">{country.flag}</span>
                 {country.name}
@@ -1226,45 +1055,30 @@ function SiteFooter() {
   ];
 
   return (
-    <footer className="px-6 py-16" style={{ backgroundColor: INK }}>
+    <footer className="border-t border-border-custom px-6 py-14">
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-10 md:grid-cols-4">
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2.5">
             <img src={LOGO_URL} alt="" className="h-7 w-7 rounded-md object-contain" />
-            <span className="font-display text-[15px] font-medium tracking-[-0.02em] text-[#FAFAF8]">
-              MomoLink
-            </span>
+            <span className="font-display text-[15px] font-medium tracking-[-0.02em] text-text-primary">MomoLink</span>
           </div>
-          <p className="text-[13px] leading-[1.6] text-white/50">
-            La plateforme pour monétiser vos contenus exclusifs en Afrique de l'Ouest et Centrale
-            avec le Mobile Money.
+          <p className="text-[13.5px] leading-[1.6] text-text-secondary">
+            La plateforme pour monétiser vos contenus exclusifs en Afrique de l'Ouest et Centrale avec le Mobile Money.
           </p>
-          <span className="text-[11px] text-white/30">
-            © {new Date().getFullYear()} MomoLink Inc. Tous droits réservés.
-          </span>
+          <span className="text-[12px] text-text-secondary">© {new Date().getFullYear()} MomoLink Inc. Tous droits réservés.</span>
         </div>
 
         {columns.map((col) => (
           <div key={col.title} className="flex flex-col gap-3">
-            <h4 className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#FAFAF8]">
-              {col.title}
-            </h4>
+            <h4 className="text-[12px] font-semibold uppercase tracking-[0.14em] text-text-primary">{col.title}</h4>
             <div className="flex flex-col gap-2">
               {col.links.map((link) =>
                 'to' in link ? (
-                  <Link
-                    key={link.label}
-                    to={link.to}
-                    className="text-[13px] text-white/50 transition-colors duration-150 hover:text-accent-corail"
-                  >
+                  <Link key={link.label} to={link.to} className="text-[13.5px] text-text-secondary transition-colors duration-150 hover:text-accent-corail">
                     {link.label}
                   </Link>
                 ) : (
-                  <a
-                    key={link.label}
-                    href={link.href}
-                    className="text-[13px] text-white/50 transition-colors duration-150 hover:text-accent-corail"
-                  >
+                  <a key={link.label} href={link.href} className="text-[13.5px] text-text-secondary transition-colors duration-150 hover:text-accent-corail">
                     {link.label}
                   </a>
                 ),
@@ -1274,12 +1088,10 @@ function SiteFooter() {
         ))}
 
         <div className="flex flex-col gap-3">
-          <h4 className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#FAFAF8]">
-            Disponibilité & support
-          </h4>
-          <p className="text-[13px] leading-[1.6] text-white/50">
+          <h4 className="text-[12px] font-semibold uppercase tracking-[0.14em] text-text-primary">Disponibilité et support</h4>
+          <p className="text-[13.5px] leading-[1.6] text-text-secondary">
             Support 24/7 par email :{' '}
-            <a href="mailto:support@momolink.pro" className="text-accent-corail hover:underline">
+            <a href="mailto:support@momolink.pro" className="font-medium text-accent-corail hover:underline">
               support@momolink.pro
             </a>
           </p>
@@ -1288,7 +1100,7 @@ function SiteFooter() {
               <span
                 key={country.code}
                 title={country.name}
-                className="flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] font-semibold text-white/70"
+                className="flex items-center gap-1 rounded-md border border-border-custom bg-bg-surface px-2 py-1 text-[12px] font-semibold text-text-secondary"
               >
                 <span aria-hidden="true">{country.flag}</span>
                 {country.code}
@@ -1304,12 +1116,23 @@ function SiteFooter() {
 /* ================================================================== */
 
 export default function Landing() {
+  // Les liens d'ancre de la navigation glissent jusqu'a leur section ; reglage limite a cette
+  // page et coupe quand le visiteur a demande moins d'animations.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const previous = root.style.scrollBehavior;
+    root.style.scrollBehavior = 'smooth';
+    return () => {
+      root.style.scrollBehavior = previous;
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-bg-primary font-sans text-text-primary">
       <Nav />
       <main>
         <Hero />
-        <Marquee />
         <HowItWorks />
         <CheckoutDemo />
         <RevenueStreams />

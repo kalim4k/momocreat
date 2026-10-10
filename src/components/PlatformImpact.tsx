@@ -1,6 +1,4 @@
 import { useEffect, useState, useRef } from 'react';
-import { Users, TrendingUp, ShieldCheck, Zap } from 'lucide-react';
-import { useTheme } from '../context/ThemeContext';
 import { motion, useReducedMotion } from 'motion/react';
 
 interface AnimatedCounterProps {
@@ -121,109 +119,44 @@ export function AnimatedCounter({ value, duration = 1500, suffix = '', prefix = 
   );
 }
 
+/**
+ * Les chiffres de la plateforme, en une rangee sobre : quatre nombres et leur legende, separes
+ * par des filets. Ce sont des valeurs fixes, d'ou l'intitule « en chiffres » plutot qu'un
+ * « en direct » qui promettait des donnees temps reel.
+ */
 export default function PlatformImpact() {
-  const { isDarkMode, styles } = useTheme();
+  const reduce = useReducedMotion();
 
   const stats = [
-    {
-      id: 'stat-creators',
-      label: 'Créateurs actifs',
-      value: 520,
-      suffix: '+',
-      decimals: 0,
-      description: 'Entrepreneurs, influenceurs et formateurs en Afrique francophone.',
-      icon: Users,
-      colorClass: 'text-accent-corail bg-accent-corail/10',
-    },
-    {
-      id: 'stat-volume',
-      label: 'Volume de ventes',
-      value: 12.8,
-      suffix: 'M+ FCFA',
-      decimals: 1,
-      description: 'Générés directement dans les wallets mobiles des créateurs.',
-      icon: TrendingUp,
-      colorClass: 'text-emerald-500 bg-emerald-500/10',
-    },
-    {
-      id: 'stat-transactions',
-      label: 'Transactions sécurisées',
-      value: 14200,
-      suffix: '+',
-      decimals: 0,
-      description: 'Paiements par Mobile Money et Cartes traités avec succès.',
-      icon: ShieldCheck,
-      colorClass: 'text-blue-500 bg-blue-500/10',
-    },
-    {
-      id: 'stat-speed',
-      label: 'Taux de livraison',
-      value: 100,
-      suffix: '%',
-      decimals: 0,
-      description: 'Fichiers livrés instantanément par mail ou téléchargement.',
-      icon: Zap,
-      colorClass: 'text-success-gold bg-success-gold/10',
-    },
+    { id: 'stat-creators', label: 'Créateurs actifs', value: 520, suffix: '+', decimals: 0 },
+    { id: 'stat-volume', label: 'FCFA encaissés', value: 12.8, suffix: ' M+', decimals: 1 },
+    { id: 'stat-transactions', label: 'Paiements réussis', value: 14200, suffix: '+', decimals: 0 },
+    { id: 'stat-speed', label: 'Fichiers livrés automatiquement', value: 100, suffix: ' %', decimals: 0 },
   ];
 
   return (
-    <section id="platform-impact" className={`border-t ${styles.border} py-20 px-4 transition-colors duration-300`}>
-      <div className="max-w-6xl w-full mx-auto flex flex-col gap-12">
-        
-        {/* Section Header */}
-        <div className="text-center flex flex-col gap-4 max-w-2xl mx-auto">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent-corail/10 text-accent-corail text-[11px] font-bold tracking-wider uppercase mx-auto">
-            Statistiques en direct
-          </div>
-          <h2 className="font-display text-3xl sm:text-4xl font-medium text-text-primary tracking-tight leading-tight">
-            La plateforme de confiance pour monétiser vos contenus
-          </h2>
-          <p className="text-sm sm:text-base text-text-secondary leading-relaxed">
-            Rejoignez la nouvelle génération de créateurs africains qui développent leur activité de manière professionnelle, sécurisée et 100% automatisée.
-          </p>
-        </div>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {stats.map((stat, idx) => {
-            const IconComponent = stat.icon;
-            return (
-              <motion.div
-                key={stat.id}
-                id={stat.id}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: '-50px' }}
-                transition={{ duration: 0.5, delay: idx * 0.1 }}
-                className={`p-6 sm:p-8 rounded-[20px] border ${styles.surface} flex flex-col gap-4 transition-all duration-300 hover:shadow-md hover:border-accent-corail/30 group`}
-              >
-                {/* Icon wrapper */}
-                <div className={`p-3 rounded-xl w-fit ${stat.colorClass} transition-transform duration-300 group-hover:scale-110`}>
-                  <IconComponent size={24} />
-                </div>
-
-                {/* Counter and Label */}
-                <div className="flex flex-col gap-1 mt-2">
-                  <span className="font-display text-3xl sm:text-4xl font-semibold tracking-tight text-text-primary">
-                    <AnimatedCounter 
-                      value={stat.value} 
-                      suffix={stat.suffix} 
-                      decimals={stat.decimals} 
-                    />
-                  </span>
-                  <span className="text-sm font-semibold text-text-primary">
-                    {stat.label}
-                  </span>
-                </div>
-
-                {/* Description */}
-                <p className="text-xs text-text-secondary leading-relaxed">
-                  {stat.description}
-                </p>
-              </motion.div>
-            );
-          })}
+    <section id="platform-impact" className="px-4 py-20 sm:py-24">
+      <div className="mx-auto flex max-w-6xl flex-col gap-10">
+        <p className="text-center text-[12px] font-semibold uppercase tracking-[0.14em] text-text-secondary">
+          MomoLink en chiffres
+        </p>
+        <div className="grid grid-cols-2 gap-y-10 lg:grid-cols-4">
+          {stats.map((stat, idx) => (
+            <motion.div
+              key={stat.id}
+              id={stat.id}
+              initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-40px' }}
+              transition={reduce ? { duration: 0.2 } : { type: 'spring', bounce: 0, duration: 0.5, delay: idx * 0.07 }}
+              className={`flex flex-col items-center gap-1.5 px-4 text-center ${idx % 2 === 1 ? 'border-l border-border-custom' : ''} ${idx === 2 ? 'lg:border-l' : ''}`}
+            >
+              <span className="font-display text-[2.25rem] font-medium leading-none tracking-[-0.035em] text-text-primary sm:text-[2.75rem]">
+                <AnimatedCounter value={stat.value} suffix={stat.suffix} decimals={stat.decimals} />
+              </span>
+              <span className="text-[13.5px] text-text-secondary">{stat.label}</span>
+            </motion.div>
+          ))}
         </div>
       </div>
     </section>
