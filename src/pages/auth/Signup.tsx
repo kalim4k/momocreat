@@ -32,6 +32,7 @@ export default function Signup() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [confirmationSentTo, setConfirmationSentTo] = useState<string | null>(null);
 
   const handleGoogleSignIn = async () => {
     setLocalError(null);
@@ -75,7 +76,11 @@ export default function Signup() {
     setLoading(true);
     try {
       const res = await signUp(email, password);
-      if (res.success) {
+      if (res.success && res.needsConfirmation) {
+        // Confirmation par e-mail activee cote Supabase : pas encore de session, l'onboarding
+        // echouerait. Le lien du mail ramene sur /auth/callback, qui enchaine sur l'onboarding.
+        setConfirmationSentTo(email);
+      } else if (res.success) {
         navigate('/onboarding');
       } else {
         setLocalError(res.error || 'Erreur lors de l’inscription.');
@@ -121,6 +126,13 @@ export default function Signup() {
             Rejoignez des milliers de créateurs en Afrique de l’Ouest
           </p>
         </div>
+
+        {confirmationSentTo && (
+          <div className="mb-6 p-4 rounded-[12px] bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs leading-relaxed font-medium">
+            Compte créé. Ouvrez le lien envoyé à <strong>{confirmationSentTo}</strong> pour confirmer votre adresse, puis
+            vous pourrez configurer votre boutique.
+          </div>
+        )}
 
         {/* Error Notification */}
         {(localError || authError) && (

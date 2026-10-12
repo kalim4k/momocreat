@@ -78,6 +78,13 @@ export default function Onboarding() {
         setError("Le nom d'utilisateur est obligatoire.");
         return;
       }
+      // Sans cette attente, un clic sur « Continuer » pendant la verification (450 ms apres la
+      // derniere frappe) laissait passer un nom deja pris : l'erreur n'arrivait qu'a l'envoi
+      // final, deux etapes plus loin.
+      if (checkingUsername || usernameAvailable === null) {
+        setError("Un instant : on vérifie que ce nom d'utilisateur est libre.");
+        return;
+      }
       if (usernameAvailable === false) {
         setError("Ce nom d'utilisateur est déjà pris ou invalide.");
         return;
@@ -131,6 +138,11 @@ export default function Onboarding() {
 
       if (result.success) {
         navigate('/dashboard');
+      } else if (result.usernameTaken) {
+        // Pris entre la verification et l'envoi : retour a l'etape du nom, champs conserves.
+        setUsernameAvailable(false);
+        setStep(1);
+        setError(result.error || "Ce nom d'utilisateur vient d'être pris. Choisissez-en un autre.");
       } else {
         setError(result.error || 'Une erreur s’est produite.');
       }
